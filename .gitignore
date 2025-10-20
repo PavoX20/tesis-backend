@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+# Environment
+.env
+venv/
+.envrc
+.venv/
+.env.*
+
+# Conda
+conda-meta/
+*.yaml
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Byte-compiled
+*.egg-info/
+.eggs/
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# Tests
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Others
+*.bak
+*.tmp
