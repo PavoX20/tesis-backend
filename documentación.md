@@ -259,3 +259,7 @@ curl http://127.0.0.1:8000/procesos-detalle/1
 - **Desarrollador:** [Tu nombre]
 - **Backend:** FastAPI + SQLModel
 - **Base de datos:** PostgreSQL (Supabase)
+
+## Ver diagrama de un Artículo
+- curl http://127.0.0.1:8000/diagramas-detalle/1                                                                                                    ─╯
+- {"id_diagrama":1,"nombre":"Diagrama AIRFLOW","descripcion":"Deportivo Casual","procesos":[]}%

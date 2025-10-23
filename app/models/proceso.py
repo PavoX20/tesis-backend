@@ -1,12 +1,17 @@
+from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional
-from sqlmodel import SQLModel, Field
 
 class Proceso(SQLModel, table=True):
-    __tablename__ = "procesos"
-
     id_proceso: Optional[int] = Field(default=None, primary_key=True)
     nombre_proceso: str
     parametros: Optional[str] = None
-    duracion: Optional[float] = Field(default=None, ge=0)
-    distribucion: Optional[str] = Field(default=None)
+    duracion: Optional[float] = None
+    distribucion: Optional[str] = None
     id_tipomaquina: Optional[int] = Field(default=None, foreign_key="tipos_maquinas.id_tipomaquina")
+
+    # ✅ nuevo campo: ahora los procesos pertenecen a un diagrama
+    id_diagrama: Optional[int] = Field(default=None, foreign_key="diagramas_de_flujo.id_diagrama")
+    orden: Optional[int] = Field(default=None, ge=1)
+
+    # relaciones (opcionales)
+    # diagrama: Optional["DiagramaDeFlujo"] = Relationship(back_populates="procesos")

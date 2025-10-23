@@ -4,7 +4,6 @@ from .area_crud import *
 from .tipo_maquina_crud import *
 from .proceso_crud import *
 from .diagrama_crud import *
-from .diagrama_proceso_crud import *
 from .receta_crud import *
 from .diagrama_detalle_crud import *
 from .proceso_detalle_crud import *

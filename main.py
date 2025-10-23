@@ -10,7 +10,6 @@ from app.api.routers import (
     tipo_maquina_router,
     proceso_router,
     diagrama_router,
-    diagrama_proceso_router,
     receta_router,
     diagrama_detalle_router,
 )
@@ -41,7 +40,6 @@ for router in [
     tipo_maquina_router,
     proceso_router,
     diagrama_router,
-    diagrama_proceso_router,
     receta_router,
     diagrama_detalle_router,
     proceso_detalle_router
