@@ -1,15 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.database import init_db
 from app.api.routers import (
     catalogo_router,
     materia_prima_router,
     area_router,
+    proceso_detalle_router,
     tipo_maquina_router,
     proceso_router,
     diagrama_router,
     diagrama_proceso_router,
     receta_router,
+    diagrama_detalle_router,
 )
 
 @asynccontextmanager
@@ -18,6 +21,17 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Process Optimizer API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Registro automático de todos los routers
 for router in [
@@ -29,6 +43,8 @@ for router in [
     diagrama_router,
     diagrama_proceso_router,
     receta_router,
+    diagrama_detalle_router,
+    proceso_detalle_router
 ]:
     app.include_router(router)
 
