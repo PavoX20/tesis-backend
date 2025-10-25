@@ -9,5 +9,5 @@ router = APIRouter(prefix="/diagramas-detalle", tags=["Diagramas Detalle"])
 def get_diagrama_detalle_endpoint(id_catalogo: int, session: Session = Depends(get_session)):
     result = get_diagrama_detalle(session, id_catalogo)
     if not result:
-        raise HTTPException(status_code=404, detail="Diagrama no encontrado")
+        raise HTTPException(status_code=404, detail="Catálogo no encontrado o sin diagrama asociado")
     return result

@@ -6,12 +6,15 @@ from app.api.routers import (
     catalogo_router,
     materia_prima_router,
     area_router,
-    proceso_detalle_router,
     tipo_maquina_router,
     proceso_router,
     diagrama_router,
     receta_router,
     diagrama_detalle_router,
+    proceso_detalle_router,
+    grafo_router,
+    dependencia_router,
+    receta_detalle_router,
 )
 
 @asynccontextmanager
@@ -32,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Registro automático de todos los routers
+# Registro de routers
 for router in [
     catalogo_router,
     materia_prima_router,
@@ -42,7 +45,10 @@ for router in [
     diagrama_router,
     receta_router,
     diagrama_detalle_router,
-    proceso_detalle_router
+    proceso_detalle_router,
+    grafo_router,
+    dependencia_router, 
+    receta_detalle_router,
 ]:
     app.include_router(router)
 

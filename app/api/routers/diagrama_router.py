@@ -1,39 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.core.database import get_session
-from app.models.diagrama import DiagramaDeFlujo
-from app.crud.diagrama_crud import (
-    get_all_diagramas, get_diagrama_by_id,
-    create_diagrama, update_diagrama, delete_diagrama
-)
+from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
-router = APIRouter(prefix="/diagramas", tags=["Diagramas de Flujo"])
+router = APIRouter(prefix="/diagramas", tags=["Diagramas"])
 
-@router.get("/", response_model=list[DiagramaDeFlujo])
-def listar_diagramas(session: Session = Depends(get_session)):
-    return get_all_diagramas(session)
 
-@router.get("/{diagrama_id}", response_model=DiagramaDeFlujo)
-def obtener_diagrama(diagrama_id: int, session: Session = Depends(get_session)):
-    diagrama = get_diagrama_by_id(session, diagrama_id)
-    if not diagrama:
-        raise HTTPException(status_code=404, detail="Diagrama no encontrado")
-    return diagrama
+# Crear un nuevo diagrama
+@router.post("/")
+def create_diagrama(diagrama: Diagrama, session: Session = Depends(get_session)):
+    # Verificar si ya hay un principal para ese catálogo
+    if diagrama.es_principal:
+        existing = session.exec(
+            select(Diagrama).where(
+                (Diagrama.id_catalogo == diagrama.id_catalogo)
+                & (Diagrama.es_principal == True)
+            )
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="Ya existe un diagrama principal para este catálogo."
+            )
 
-@router.post("/", response_model=DiagramaDeFlujo)
-def crear_diagrama(data: DiagramaDeFlujo, session: Session = Depends(get_session)):
-    return create_diagrama(session, data)
+    session.add(diagrama)
+    session.commit()
+    session.refresh(diagrama)
+    return {"message": "Diagrama creado correctamente", "data": diagrama}
 
-@router.put("/{diagrama_id}", response_model=DiagramaDeFlujo)
-def actualizar_diagrama(diagrama_id: int, data: DiagramaDeFlujo, session: Session = Depends(get_session)):
-    updated = update_diagrama(session, diagrama_id, data)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Diagrama no encontrado")
-    return updated
 
-@router.delete("/{diagrama_id}", response_model=DiagramaDeFlujo)
-def eliminar_diagrama(diagrama_id: int, session: Session = Depends(get_session)):
-    deleted = delete_diagrama(session, diagrama_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Diagrama no encontrado")
-    return deleted
+# Listar todos los diagramas de un catálogo
+@router.get("/{id_catalogo}")
+def list_diagramas(id_catalogo: int, session: Session = Depends(get_session)):
+    diagramas = session.exec(
+        select(Diagrama).where(Diagrama.id_catalogo == id_catalogo)
+    ).all()
+
+    if not diagramas:
+        raise HTTPException(status_code=404, detail="No se encontraron diagramas para este catálogo")
+
+    return {"catalogo_id": id_catalogo, "diagramas": diagramas}

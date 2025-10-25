@@ -1,12 +1,11 @@
-from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column, String, Numeric
 
 class Catalogo(SQLModel, table=True):
     __tablename__ = "catalogo"
 
-    id_catalogo: Optional[int] = Field(default=None, primary_key=True)
-    nombre: str
-    descripcion: Optional[str] = None
-    genero: Optional[str] = Field(default=None)
-    restriccion: Optional[str] = Field(default=None)
-    precio: Optional[float] = Field(default=None, ge=0)
+    id_catalogo: int | None = Field(default=None, primary_key=True)
+    nombre: str = Field(sa_column=Column(String(255), nullable=False))
+    descripcion: str | None = None
+    genero: str | None = Field(default=None)
+    restriccion: str | None = Field(default=None)
+    precio: float | None = Field(default=None, sa_column=Column(Numeric(10,2)))

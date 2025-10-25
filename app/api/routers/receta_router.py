@@ -1,39 +1,77 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 from app.core.database import get_session
-from app.models.receta import Receta
+from app.models.receta import Receta, RecetaDetalle
 from app.crud.receta_crud import (
-    get_all_recetas, get_receta_by_id,
-    create_receta, update_receta, delete_receta
+    create_receta,
+    get_recetas_by_diagrama,
+    get_receta_by_id,
+    delete_receta,
+    create_receta_detalle,
+    get_detalles_by_receta
 )
 
 router = APIRouter(prefix="/recetas", tags=["Recetas"])
 
-@router.get("/", response_model=list[Receta])
-def listar_recetas(session: Session = Depends(get_session)):
-    return get_all_recetas(session)
 
-@router.get("/{receta_id}", response_model=Receta)
-def obtener_receta(receta_id: int, session: Session = Depends(get_session)):
-    receta = get_receta_by_id(session, receta_id)
+@router.post("/")
+def crear_receta(receta: Receta, session: Session = Depends(get_session)):
+    try:
+        nueva_receta = create_receta(session, receta)
+        return {
+            "message": "Receta creada correctamente",
+            "data": nueva_receta
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{id_diagrama}")
+def listar_recetas(id_diagrama: int, session: Session = Depends(get_session)):
+    recetas = get_recetas_by_diagrama(session, id_diagrama)
+    if not recetas:
+        raise HTTPException(status_code=404, detail="No hay recetas para este diagrama")
+    return {
+        "id_diagrama": id_diagrama,
+        "recetas": recetas
+    }
+
+# ---------- Crear receta ----------
+@router.post("/", response_model=dict)
+def crear_receta(receta: Receta, session: Session = Depends(get_session)):
+    new_receta = create_receta(session, receta)
+    return {"message": "Receta creada correctamente", "data": new_receta}
+
+
+# ---------- Listar recetas por diagrama ----------
+@router.get("/{id_diagrama}", response_model=dict)
+def listar_recetas(id_diagrama: int, session: Session = Depends(get_session)):
+    recetas = get_recetas_by_diagrama(session, id_diagrama)
+    if not recetas:
+        raise HTTPException(status_code=404, detail="No hay recetas para este diagrama")
+    return {"id_diagrama": id_diagrama, "recetas": recetas}
+
+
+# ---------- Obtener una receta por ID ----------
+@router.get("/detalle/{id_receta}", response_model=dict)
+def obtener_receta(id_receta: int, session: Session = Depends(get_session)):
+    receta = get_receta_by_id(session, id_receta)
     if not receta:
         raise HTTPException(status_code=404, detail="Receta no encontrada")
-    return receta
+    detalles = get_detalles_by_receta(session, id_receta)
+    return {"receta": receta, "detalles": detalles}
 
-@router.post("/", response_model=Receta)
-def crear_receta(data: Receta, session: Session = Depends(get_session)):
-    return create_receta(session, data)
 
-@router.put("/{receta_id}", response_model=Receta)
-def actualizar_receta(receta_id: int, data: Receta, session: Session = Depends(get_session)):
-    updated = update_receta(session, receta_id, data)
-    if not updated:
+# ---------- Eliminar una receta ----------
+@router.delete("/{id_receta}", response_model=dict)
+def eliminar_receta(id_receta: int, session: Session = Depends(get_session)):
+    ok = delete_receta(session, id_receta)
+    if not ok:
         raise HTTPException(status_code=404, detail="Receta no encontrada")
-    return updated
+    return {"message": "Receta eliminada correctamente"}
 
-@router.delete("/{receta_id}", response_model=Receta)
-def eliminar_receta(receta_id: int, session: Session = Depends(get_session)):
-    deleted = delete_receta(session, receta_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Receta no encontrada")
-    return deleted
+
+# ---------- Crear detalle de receta ----------
+@router.post("/detalle", response_model=dict)
+def crear_detalle(detalle: RecetaDetalle, session: Session = Depends(get_session)):
+    new_detalle = create_receta_detalle(session, detalle)
+    return {"message": "Detalle agregado correctamente", "data": new_detalle}

@@ -1,39 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.core.database import get_session
 from app.models.proceso import Proceso
-from app.crud.proceso_crud import (
-    get_all_procesos, get_proceso_by_id,
-    create_proceso, update_proceso, delete_proceso
-)
+from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
 router = APIRouter(prefix="/procesos", tags=["Procesos"])
 
-@router.get("/", response_model=list[Proceso])
-def listar_procesos(session: Session = Depends(get_session)):
-    return get_all_procesos(session)
 
-@router.get("/{proceso_id}", response_model=Proceso)
-def obtener_proceso(proceso_id: int, session: Session = Depends(get_session)):
-    proceso = get_proceso_by_id(session, proceso_id)
-    if not proceso:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    return proceso
+# Crear un proceso dentro de un diagrama
+@router.post("/")
+def create_proceso(proceso: Proceso, session: Session = Depends(get_session)):
+    # Verificar que el diagrama existe
+    diagrama = session.exec(
+        select(DiagramaDeFlujo).where(DiagramaDeFlujo.id_diagrama == proceso.id_diagrama)
+    ).first()
+    if not diagrama:
+        raise HTTPException(status_code=404, detail="El diagrama no existe")
 
-@router.post("/", response_model=Proceso)
-def crear_proceso(data: Proceso, session: Session = Depends(get_session)):
-    return create_proceso(session, data)
+    # Calcular orden automáticamente si no se envía
+    if proceso.orden is None:
+        last = session.exec(
+            select(Proceso).where(Proceso.id_diagrama == proceso.id_diagrama)
+        ).all()
+        proceso.orden = len(last) + 1
 
-@router.put("/{proceso_id}", response_model=Proceso)
-def actualizar_proceso(proceso_id: int, data: Proceso, session: Session = Depends(get_session)):
-    updated = update_proceso(session, proceso_id, data)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    return updated
+    session.add(proceso)
+    session.commit()
+    session.refresh(proceso)
+    return {"message": "Proceso creado correctamente", "data": proceso}
 
-@router.delete("/{proceso_id}", response_model=Proceso)
-def eliminar_proceso(proceso_id: int, session: Session = Depends(get_session)):
-    deleted = delete_proceso(session, proceso_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    return deleted
+
+# Listar procesos de un diagrama
+@router.get("/{id_diagrama}")
+def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
+    procesos = session.exec(
+        select(Proceso).where(Proceso.id_diagrama == id_diagrama).order_by(Proceso.orden)
+    ).all()
+
+    if not procesos:
+        raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
+
+    return {"id_diagrama": id_diagrama, "procesos": procesos}

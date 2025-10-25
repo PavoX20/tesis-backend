@@ -1,33 +1,59 @@
 from sqlmodel import Session, select
-from app.models.receta import Receta
+from app.models.receta import Receta, RecetaDetalle
 
-def get_all_recetas(session: Session):
-    return session.exec(select(Receta)).all()
-
-def get_receta_by_id(session: Session, receta_id: int):
-    return session.get(Receta, receta_id)
-
-def create_receta(session: Session, data: Receta):
-    session.add(data)
-    session.commit()
-    session.refresh(data)
-    return data
-
-def update_receta(session: Session, receta_id: int, data: Receta):
-    receta = session.get(Receta, receta_id)
-    if not receta:
-        return None
-    for key, value in data.dict(exclude_unset=True).items():
-        setattr(receta, key, value)
+def create_receta(session: Session, receta: Receta):
     session.add(receta)
     session.commit()
     session.refresh(receta)
     return receta
 
-def delete_receta(session: Session, receta_id: int):
-    receta = session.get(Receta, receta_id)
-    if not receta:
-        return None
-    session.delete(receta)
+def get_recetas_by_diagrama(session: Session, id_diagrama: int):
+    recetas = session.exec(select(Receta).where(Receta.id_diagrama == id_diagrama)).all()
+    return recetas
+
+# ---------- Crear receta ----------
+def create_receta(session: Session, receta: Receta):
+    session.add(receta)
     session.commit()
+    session.refresh(receta)
     return receta
+
+
+# ---------- Obtener recetas por diagrama ----------
+def get_recetas_by_diagrama(session: Session, id_diagrama: int):
+    recetas = session.exec(
+        select(Receta).where(Receta.id_diagrama == id_diagrama)
+    ).all()
+    return recetas
+
+
+# ---------- Obtener receta por ID ----------
+def get_receta_by_id(session: Session, id_receta: int):
+    receta = session.get(Receta, id_receta)
+    return receta
+
+
+# ---------- Eliminar receta ----------
+def delete_receta(session: Session, id_receta: int):
+    receta = session.get(Receta, id_receta)
+    if receta:
+        session.delete(receta)
+        session.commit()
+        return True
+    return False
+
+
+# ---------- Crear detalle ----------
+def create_receta_detalle(session: Session, detalle: RecetaDetalle):
+    session.add(detalle)
+    session.commit()
+    session.refresh(detalle)
+    return detalle
+
+
+# ---------- Obtener detalles por receta ----------
+def get_detalles_by_receta(session: Session, id_receta: int):
+    detalles = session.exec(
+        select(RecetaDetalle).where(RecetaDetalle.id_receta == id_receta)
+    ).all()
+    return detalles

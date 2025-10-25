@@ -1,5 +1,5 @@
 from sqlmodel import Session, select
-from app.models.diagrama import DiagramaDeFlujo
+from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
 def get_all_diagramas(session: Session):
     return session.exec(select(DiagramaDeFlujo)).all()
