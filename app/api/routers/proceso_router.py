@@ -17,16 +17,26 @@ def create_proceso(proceso: Proceso, session: Session = Depends(get_session)):
     if not diagrama:
         raise HTTPException(status_code=404, detail="El diagrama no existe")
 
-    # Calcular orden automáticamente si no se envía
-    if proceso.orden is None:
-        last = session.exec(
-            select(Proceso).where(Proceso.id_diagrama == proceso.id_diagrama)
-        ).all()
-        proceso.orden = len(last) + 1
+    # Obtener procesos existentes ordenados
+    procesos_existentes = session.exec(
+        select(Proceso).where(Proceso.id_diagrama == proceso.id_diagrama).order_by(Proceso.orden)
+    ).all()
 
+    # Si no se especifica orden, agregar al final
+    if not proceso.orden or proceso.orden > len(procesos_existentes):
+        proceso.orden = len(procesos_existentes) + 1
+    else:
+        # Desplazar procesos siguientes hacia abajo
+        for p in procesos_existentes:
+            if p.orden >= proceso.orden:
+                p.orden += 1
+                session.add(p)
+
+    # Crear nuevo proceso
     session.add(proceso)
     session.commit()
     session.refresh(proceso)
+
     return {"message": "Proceso creado correctamente", "data": proceso}
 
 

@@ -272,6 +272,29 @@ curl -X GET "http://127.0.0.1:8000/grafo/6" -H "accept: application/json"
 }
 ```
 
+## 🧱 8. Consultar diagramas de cierto artículo 
+
+**GET** `/grafo/{id_diagrama}`
+```bash
+curl -X GET "http://127.0.0.1:8000/diagramas/7" -H "accept: application/json"
+```
+
+**Respuesta**
+```json
+{
+  "catalogo_id": 7,
+  "diagramas": [
+    {
+      "descripcion": "Flujo principal del producto",
+      "id_diagrama": 8,
+      "nombre": "Mi Diagrama Principal",
+      "es_principal": true,
+      "id_catalogo": 7
+    }
+  ]
+}
+```
+
 ---
 
 ## 🧭 Flujo completo Frontend → Backend
