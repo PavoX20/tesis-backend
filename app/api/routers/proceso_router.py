@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.core.database import get_session
+from app.crud import proceso_crud
 from app.models.proceso import Proceso
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
@@ -51,3 +52,10 @@ def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
 
     return {"id_diagrama": id_diagrama, "procesos": procesos}
+
+@router.put("/{id_proceso}")
+def update_proceso_endpoint(id_proceso: int, data: Proceso, session: Session = Depends(get_session)):
+    proceso = proceso_crud.update_proceso(session, id_proceso, data)
+    if not proceso:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    return {"status": "ok", "proceso_actualizado": proceso.id_proceso}

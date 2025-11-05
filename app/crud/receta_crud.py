@@ -1,59 +1,61 @@
-from sqlmodel import Session, select
-from app.models.receta import Receta, RecetaDetalle
-
-def create_receta(session: Session, receta: Receta):
-    session.add(receta)
-    session.commit()
-    session.refresh(receta)
-    return receta
-
-def get_recetas_by_diagrama(session: Session, id_diagrama: int):
-    recetas = session.exec(select(Receta).where(Receta.id_diagrama == id_diagrama)).all()
-    return recetas
-
-# ---------- Crear receta ----------
-def create_receta(session: Session, receta: Receta):
-    session.add(receta)
-    session.commit()
-    session.refresh(receta)
-    return receta
+from typing import Any, List, Dict, Tuple
+from sqlmodel import Session, delete, select
+from app.models.materia_model import Materia
+from app.models.proceso import Proceso
+from app.models.receta import Receta
 
 
-# ---------- Obtener recetas por diagrama ----------
-def get_recetas_by_diagrama(session: Session, id_diagrama: int):
-    recetas = session.exec(
-        select(Receta).where(Receta.id_diagrama == id_diagrama)
+def get_receta_by_proceso(session: Session, id_proceso: int) -> Dict[str, list]:
+    rows = session.exec(
+        select(Receta, Materia)
+        .join(Materia, Materia.id_materia == Receta.id_materia)
+        .where(Receta.id_proceso == id_proceso)
     ).all()
-    return recetas
 
+    entradas, salidas = [], []
+    for r, m in rows:
+        item = {
+            "id_receta": r.id_receta,
+            "id_proceso": r.id_proceso,
+            "id_materia": r.id_materia,
+            "rol": r.rol,
+            "cantidad": float(r.cantidad),
+            "materia_nombre": m.nombre,
+            "unidad": m.unidad,
+        }
+        (entradas if r.rol == "IN" else salidas).append(item)
 
-# ---------- Obtener receta por ID ----------
-def get_receta_by_id(session: Session, id_receta: int):
-    receta = session.get(Receta, id_receta)
-    return receta
+    return {"entradas": entradas, "salidas": salidas}
 
+def _validar_materias(session: Session, entradas: List[Dict], salidas: List[Dict]) -> None:
+    ids = {e["id_materia"] for e in entradas} | {s["id_materia"] for s in salidas}
+    if not ids:
+        return
+    existentes = set(session.exec(
+        select(Materia.id_materia).where(Materia.id_materia.in_(ids))
+    ).all())
+    faltantes = ids - existentes
+    if faltantes:
+        raise ValueError(f"Materias inexistentes: {sorted(faltantes)}")
 
-# ---------- Eliminar receta ----------
-def delete_receta(session: Session, id_receta: int):
-    receta = session.get(Receta, id_receta)
-    if receta:
-        session.delete(receta)
+def replace_receta(
+    session: Session,
+    id_proceso: int,
+    entradas: List[Dict[str, Any]],
+    salidas: List[Dict[str, Any]],
+) -> Dict[str, int]:
+    _validar_materias(session, entradas, salidas)
+
+    session.exec(delete(Receta).where(Receta.id_proceso == id_proceso))
+    session.commit()
+
+    rows: list[Receta] = []
+    rows += [Receta(id_proceso=id_proceso, id_materia=x["id_materia"], rol="IN",  cantidad=x["cantidad"]) for x in entradas]
+    rows += [Receta(id_proceso=id_proceso, id_materia=x["id_materia"], rol="OUT", cantidad=x["cantidad"]) for x in salidas]
+
+    if rows:
+        session.add_all(rows)
         session.commit()
-        return True
-    return False
 
+    return {"inserted": len(rows)}
 
-# ---------- Crear detalle ----------
-def create_receta_detalle(session: Session, detalle: RecetaDetalle):
-    session.add(detalle)
-    session.commit()
-    session.refresh(detalle)
-    return detalle
-
-
-# ---------- Obtener detalles por receta ----------
-def get_detalles_by_receta(session: Session, id_receta: int):
-    detalles = session.exec(
-        select(RecetaDetalle).where(RecetaDetalle.id_receta == id_receta)
-    ).all()
-    return detalles

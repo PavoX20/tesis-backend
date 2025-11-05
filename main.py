@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.core.database import init_db
 from app.api.routers import (
     catalogo_router,
-    materia_prima_router,
+    materia_router,
     area_router,
     tipo_maquina_router,
     proceso_router,
@@ -14,7 +14,7 @@ from app.api.routers import (
     proceso_detalle_router,
     grafo_router,
     dependencia_router,
-    receta_detalle_router,
+    tipo_maquina_router,
 )
 
 @asynccontextmanager
@@ -38,7 +38,7 @@ app.add_middleware(
 # Registro de routers
 for router in [
     catalogo_router,
-    materia_prima_router,
+    materia_router,
     area_router,
     tipo_maquina_router,
     proceso_router,
@@ -47,8 +47,8 @@ for router in [
     diagrama_detalle_router,
     proceso_detalle_router,
     grafo_router,
-    dependencia_router, 
-    receta_detalle_router,
+    dependencia_router,
+    tipo_maquina_router
 ]:
     app.include_router(router)
 

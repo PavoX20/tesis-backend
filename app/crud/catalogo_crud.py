@@ -3,7 +3,7 @@ from app.models.catalogo import Catalogo
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 from app.models.proceso import Proceso
 from app.models.procesos_dependencias import ProcesoDependencia
-from app.models.receta import Receta, RecetaDetalle
+from app.models.receta import Receta
 
 
 # ==============================
@@ -55,37 +55,29 @@ def delete_catalogo(session: Session, catalogo_id: int):
     if not catalogo:
         return None
 
-    # Buscar diagramas del catálogo
-    diagramas = session.exec(select(DiagramaDeFlujo).where(DiagramaDeFlujo.id_catalogo == catalogo_id)).all()
+    # procesos de todos los diagramas del catálogo
+    proc_ids = session.exec(
+        select(Proceso.id_proceso)
+        .join(DiagramaDeFlujo, DiagramaDeFlujo.id_diagrama == Proceso.id_diagrama)
+        .where(DiagramaDeFlujo.id_catalogo == catalogo_id)
+    ).all()
 
-    for diagrama in diagramas:
-        # Eliminar dependencias asociadas a los procesos del diagrama
-        procesos = session.exec(select(Proceso).where(Proceso.id_diagrama == diagrama.id_diagrama)).all()
-        proceso_ids = [p.id_proceso for p in procesos]
+    if proc_ids:
+        # borra filas de receta del conjunto de procesos
+        session.exec(Receta.__table__.delete().where(Receta.id_proceso.in_(proc_ids)))
+        # cascada se encarga de procesos_dependencias al borrar procesos
 
-        if proceso_ids:
-            session.exec(
-                ProcesoDependencia.__table__.delete().where(
-                    (ProcesoDependencia.id_origen.in_(proceso_ids)) |
-                    (ProcesoDependencia.id_destino.in_(proceso_ids))
-                )
+    # borra procesos (por si no confías en la cascada posterior)
+    session.exec(
+        Proceso.__table__.delete().where(
+            Proceso.id_diagrama.in_(
+                select(DiagramaDeFlujo.id_diagrama).where(DiagramaDeFlujo.id_catalogo == catalogo_id)
             )
-
-            # Eliminar recetas y detalles
-            recetas = session.exec(select(Receta).where(Receta.id_diagrama == diagrama.id_diagrama)).all()
-            for receta in recetas:
-                session.exec(
-                    RecetaDetalle.__table__.delete().where(RecetaDetalle.id_receta == receta.id_receta)
-                )
-            session.exec(Receta.__table__.delete().where(Receta.id_diagrama == diagrama.id_diagrama))
-
-        # Eliminar procesos
-        session.exec(Proceso.__table__.delete().where(Proceso.id_diagrama == diagrama.id_diagrama))
-
-    # Eliminar diagramas del catálogo
+        )
+    )
+    # borra diagramas
     session.exec(DiagramaDeFlujo.__table__.delete().where(DiagramaDeFlujo.id_catalogo == catalogo_id))
-
-    # Finalmente eliminar el catálogo
+    # borra catálogo
     session.delete(catalogo)
     session.commit()
     return True

@@ -1,18 +1,20 @@
-# app/models/receta_model.py
-from sqlmodel import SQLModel, Field, ForeignKey, Column, Integer, Numeric
+# app/models/receta.py
+from __future__ import annotations
+from typing import Optional
+from decimal import Decimal
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy import UniqueConstraint, Numeric
 
 class Receta(SQLModel, table=True):
-    __tablename__ = "recetas"
-    id_receta: int | None = Field(default=None, primary_key=True)
-    id_diagrama: int = Field(foreign_key="diagramas_de_flujo.id_diagrama")
-    id_proceso: int | None = Field(default=None, foreign_key="procesos.id_proceso")
-    id_producto: int | None = Field(default=None, foreign_key="materias_primas.id_materia")
-    cantidad_producida: float = Field(sa_column=Column(Numeric(10,2), nullable=False))
+    __tablename__ = "receta"
+    __table_args__ = (
+        UniqueConstraint("id_proceso", "id_materia", "rol",
+                         name="uq_receta_proceso_materia_rol"),
+    )
 
-class RecetaDetalle(SQLModel, table=True):
-    __tablename__ = "receta_detalle"
-    id_detalle: int | None = Field(default=None, primary_key=True)
-    id_receta: int = Field(foreign_key="recetas.id_receta")
-    id_materia: int = Field(foreign_key="materias_primas.id_materia")
-    cantidad_requerida: float = Field(sa_column=Column(Numeric(10,2), nullable=False))
-    cantidad_unitaria: float = Field(sa_column=Column(Numeric(10,2), nullable=False))
+    id_receta: Optional[int] = Field(default=None, primary_key=True)
+    id_proceso: int = Field(foreign_key="procesos.id_proceso", index=True)
+    id_materia: int = Field(foreign_key="materias.id_materia", index=True)
+    # "IN" = entrada, "OUT" = salida
+    rol: str = Field(min_length=2, max_length=3)
+    cantidad: Decimal = Field(sa_column=Column(Numeric(12, 4), nullable=False))

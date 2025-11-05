@@ -1,5 +1,5 @@
 from .catalogo_crud import *
-from .materia_prima_crud import *
+from .materia_crud import *
 from .area_crud import *
 from .tipo_maquina_crud import *
 from .proceso_crud import *

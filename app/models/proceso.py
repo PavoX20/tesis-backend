@@ -1,14 +1,24 @@
-from sqlmodel import SQLModel, Field, Column, String, Integer, Numeric, ForeignKey
+# app/models/proceso.py
+from typing import Optional
+from pydantic import BaseModel
+from sqlmodel import SQLModel, Field
 
 class Proceso(SQLModel, table=True):
     __tablename__ = "procesos"
 
-    id_proceso: int | None = Field(default=None, primary_key=True)
-    nombre_proceso: str = Field(sa_column=Column(String(255), nullable=False))
-    parametros: str | None = None
-    duracion: float | None = Field(default=None, sa_column=Column(Numeric(10,2)))
-    distribucion: str | None = None
-    id_tipomaquina: int | None = Field(default=None, foreign_key="tipos_maquinas.id_tipomaquina")
-    id_diagrama: int | None = Field(default=None, foreign_key="diagramas_de_flujo.id_diagrama")
-    id_receta: int | None = Field(default=None, foreign_key="recetas.id_receta")
-    orden: int | None = Field(default=None)
+    id_proceso: Optional[int] = Field(default=None, primary_key=True)
+    nombre_proceso: str
+    parametros: Optional[str] = None
+    duracion: Optional[float] = None
+    distribucion: Optional[str] = None  # 'norm', 'weibull_min', ...
+    id_tipomaquina: Optional[int] = Field(default=None, foreign_key="tipos_maquinas.id_tipomaquina")
+    id_diagrama: int = Field(foreign_key="diagramas_de_flujo.id_diagrama")
+    orden: int
+
+
+
+
+class ProcesoUpdate(BaseModel):
+    nombre_proceso: Optional[str]
+    distribucion: Optional[str]
+    parametros: Optional[str]

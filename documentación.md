@@ -1,295 +1,168 @@
-# 📘 API Documentación - Process Optimizer (ZAPATO NOVA Ejemplo Real)
+# API Docs — Materias & Receta (v5)
 
-Esta documentación describe todos los endpoints creados, con ejemplos **reales** usados en pruebas de backend y útiles para integración con el **frontend React**.
+> **Entorno:** local  
+> **Base URL:** `http://127.0.0.1:8000`  
+> **Auth:** no requerida (dev)
 
----
-
-## 🧩 1. Catálogo (Artículos)
-
-### Crear nuevo artículo
-**POST** `/catalogo/`
-
-#### Ejemplo de petición
-```bash
-curl -X POST "http://127.0.0.1:8000/catalogo/" -H "Content-Type: application/json" -d '{
-  "nombre": "ZAPATO NOVA",
-  "descripcion": "Deportivo mixto",
-  "genero": "MIXTO",
-  "restriccion": "DEPORTIVO",
-  "precio": 45.50
-}'
-```
-
-#### Respuesta
-```json
-{
-  "message": "Artículo creado correctamente",
-  "data": {
-    "nombre": "ZAPATO NOVA",
-    "restriccion": "DEPORTIVO",
-    "id_catalogo": 5,
-    "descripcion": "Deportivo mixto",
-    "genero": "MIXTO",
-    "precio": "45.50"
-  }
-}
-```
+Este documento cubre los endpoints **nuevos/ajustados** para:
+- **Materias** (`/materias`)
+- **Receta** con **N entradas** y **N salidas** por **proceso** (`/receta/proceso/{id_proceso}`)
 
 ---
 
-## 🧭 2. Diagramas
+## Esquema relevante (resumen)
 
-### Crear diagrama principal
-**POST** `/diagramas/`
-```bash
-curl -X POST "http://127.0.0.1:8000/diagramas/" -H "Content-Type: application/json" -d '{
-  "nombre": "Diagrama ZAPATO NOVA",
-  "descripcion": "Flujo principal del ZAPATO NOVA",
-  "id_catalogo": 5,
-  "es_principal": true
-}'
-```
+- **materias**: catálogo de insumos y resultados intermedios/finales.
+  - `tipo` ∈ `{"materia_prima","materia_procesada","otro"}`
+  - `unidad` ∈ `{"M2","PAR","KG","UNIDAD"}`
+- **receta**: **una fila por materia** usada o producida por el **proceso**:
+  - Campos: `id_receta`, `id_proceso`, `id_materia`, `rol`, `cantidad`
+  - `rol` ∈ `{"IN","OUT"}`
+  - `cantidad` > 0
+  - Un **proceso** puede tener **N entradas** y **N salidas** (no hay restricción de única salida).
 
-**Respuesta**
+---
+
+## Materias
+
+### Modelo (respuesta)
 ```json
 {
-  "message": "Diagrama creado correctamente",
-  "data": {
-    "id_catalogo": 5,
-    "descripcion": "Flujo principal del ZAPATO NOVA",
-    "id_diagrama": 6,
-    "es_principal": true,
-    "nombre": "Diagrama ZAPATO NOVA"
-  }
+  "id_materia": 14,
+  "nombre": "Resultado proceso 1",
+  "unidad": "UNIDAD",
+  "costo": 0.00,
+  "tipo": "materia_procesada"
 }
 ```
 
-### Crear subdiagrama
-**POST** `/diagramas/`
-```bash
-curl -X POST "http://127.0.0.1:8000/diagramas/" -H "Content-Type: application/json" -d '{
-  "nombre": "Subdiagrama SUELA NOVA",
-  "descripcion": "Subproceso de suela para ZAPATO NOVA",
-  "id_catalogo": 5,
-  "es_principal": false
-}'
-```
-**Respuesta**
+### POST `/materias`
+Crea una materia.
+
+**Body**
 ```json
 {
-  "message": "Diagrama creado correctamente",
-  "data": {
-    "id_catalogo": 5,
-    "descripcion": "Subproceso de suela para ZAPATO NOVA",
-    "id_diagrama": 7,
-    "es_principal": false,
-    "nombre": "Subdiagrama SUELA NOVA"
-  }
+  "nombre": "Betun",
+  "unidad": "UNIDAD",
+  "tipo": "materia_prima",
+  "costo": 1.5
 }
+```
+
+**Ejemplo**
+```bash
+curl -s -X POST http://127.0.0.1:8000/materias \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Betun","unidad":"UNIDAD","tipo":"materia_prima","costo":1.50}'
+```
+
+**Respuestas**
+- `200 OK`: objeto creado
+- `400 Bad Request`: validaciones (unidad/tipo inválidos, costo < 0)
+
+---
+
+### GET `/materias`
+Lista materias (paginado simple).
+
+**Query**
+- `skip` (int, default 0)
+- `limit` (int, default 50)
+
+**Ejemplo**
+```bash
+curl -s "http://127.0.0.1:8000/materias?limit=50"
 ```
 
 ---
 
-## ⚙️ 3. Procesos
+### GET `/materias/{id_materia}`
+Obtiene una materia por id.
 
-### Crear procesos principales
 ```bash
-curl -X POST "http://127.0.0.1:8000/procesos/" -H "Content-Type: application/json" -d '{
-  "nombre_proceso": "CORTAR PIEZAS",
-  "parametros": "[2.5,0.7]",
-  "distribucion": "norm",
-  "id_diagrama": 6,
-  "orden": 1
-}'
+curl -s http://127.0.0.1:8000/materias/14
 ```
 
-**Respuesta**
+**Respuestas**
+- `200 OK`
+- `404 Not Found`
+
+---
+
+### PUT `/materias/{id_materia}`
+Actualiza una materia.
+
+**Body (parcial o total)**
 ```json
 {
-  "message": "Proceso creado correctamente",
-  "data": {
-    "nombre_proceso": "CORTAR PIEZAS",
-    "distribucion": "norm",
-    "id_tipomaquina": null,
-    "id_diagrama": 6,
-    "id_receta": null,
-    "orden": 1,
-    "duracion": null,
-    "id_proceso": 9,
-    "parametros": "[2.5,0.7]"
-  }
+  "nombre": "Algodon",
+  "unidad": "UNIDAD",
+  "tipo": "materia_prima",
+  "costo": 0.20
 }
 ```
 
-Ejemplo adicional:
-- COSER PIEZAS → id_proceso: 10  
-- ENSAMBLAR ZAPATO → id_proceso: 11
-
-### Crear procesos secundarios (Subdiagrama)
+**Ejemplo**
 ```bash
-curl -X POST "http://127.0.0.1:8000/procesos/" -H "Content-Type: application/json" -d '{
-  "nombre_proceso": "PEGAR SUELA",
-  "parametros": "[0.6,0,1.3]",
-  "distribucion": "lognorm",
-  "id_diagrama": 7,
-  "orden": 2
-}'
-```
-
-**Respuesta**
-```json
-{
-  "message": "Proceso creado correctamente",
-  "data": {
-    "nombre_proceso": "PEGAR SUELA",
-    "distribucion": "lognorm",
-    "id_diagrama": 7,
-    "id_proceso": 13
-  }
-}
+curl -s -X PUT http://127.0.0.1:8000/materias/13 \
+  -H "Content-Type: application/json" \
+  -d '{"costo":0.25}'
 ```
 
 ---
 
-## 🔗 4. Dependencias
+### DELETE `/materias/{id_materia}`
+Elimina una materia.
 
-### Crear relación entre procesos (ej. Subdiagrama → Diagrama principal)
-**POST** `/dependencias/`
 ```bash
-curl -X POST "http://127.0.0.1:8000/dependencias/" -H "Content-Type: application/json" -d '{
-  "id_origen": 13,
-  "id_destino": 11
-}'
-```
-**Respuesta**
-```json
-{
-  "message": "Dependencia creada correctamente",
-  "data": {
-    "id_destino": 11,
-    "id_origen": 13
-  }
-}
+curl -s -X DELETE http://127.0.0.1:8000/materias/13
 ```
 
-### Consultar dependencias por diagrama
-```bash
-curl -X GET "http://127.0.0.1:8000/dependencias/6" -H "accept: application/json"
-```
-**Respuesta**
-```json
-{
-  "id_diagrama": 6,
-  "dependencias": [
-    {"id_origen": 13, "id_destino": 11}
-  ]
-}
-```
+**Respuestas**
+- `200 OK` / `204 No Content` (según implementación)
+- `404 Not Found`
+- `409 Conflict` (si hay FK en uso; depende de reglas ON DELETE)
 
 ---
 
-## 🧪 5. Recetas
+## Receta (N IN / N OUT por proceso)
 
-### Crear receta para un proceso
-**POST** `/recetas/`
+> Tabla única `receta`:
+> - (proceso, materia, **rol**) con **cantidad**.
+> - `rol`: `"IN"` (entrada) o `"OUT"` (salida).  
+> - **Un proceso puede tener N entradas** y **N salidas**.
+
+### GET `/receta/proceso/{id_proceso}`
+Devuelve las filas de receta del proceso separadas en `entradas` y `salidas`.
+
+**Ejemplo**
 ```bash
-curl -X POST "http://127.0.0.1:8000/recetas/" -H "Content-Type: application/json" -d '{
-  "id_diagrama": 6,
-  "id_proceso": 11,
-  "id_producto": 1,
-  "cantidad_producida": 10
-}'
+curl -s http://127.0.0.1:8000/receta/proceso/1
 ```
-**Respuesta**
+
+**Respuesta (ejemplo)**
 ```json
 {
-  "message": "Receta creada correctamente",
-  "data": {
-    "cantidad_producida": "10.00",
-    "id_producto": 1,
-    "id_proceso": 11,
-    "id_receta": 4,
-    "id_diagrama": 6
-  }
-}
-```
-
----
-
-## ⚗️ 6. Detalles de Receta
-
-### Crear detalle de receta (materiales usados)
-**POST** `/receta-detalle/`
-```bash
-curl -X POST "http://127.0.0.1:8000/receta-detalle/" -H "Content-Type: application/json" -d '{
-  "id_receta": 4,
-  "id_materia": 3,
-  "cantidad_requerida": 10,
-  "cantidad_unitaria": 1
-}'
-```
-**Respuesta**
-```json
-{
-  "message": "Detalle de receta creado correctamente",
-  "data": {
-    "id_receta": 4,
-    "id_materia": 3,
-    "cantidad_requerida": "10.00",
-    "cantidad_unitaria": "1.00",
-    "id_detalle": 5
-  }
-}
-```
-
----
-
-## 🧱 7. Consulta completa de un grafo
-
-**GET** `/grafo/{id_diagrama}`
-```bash
-curl -X GET "http://127.0.0.1:8000/grafo/6" -H "accept: application/json"
-```
-
-**Respuesta**
-```json
-{
-  "diagrama": {"id": 6, "nombre": "Diagrama ZAPATO NOVA"},
-  "procesos": [
-    {"id_proceso": 9, "nombre_proceso": "CORTAR PIEZAS", "orden": 1},
-    {"id_proceso": 10, "nombre_proceso": "COSER PIEZAS", "orden": 2},
-    {"id_proceso": 11, "nombre_proceso": "ENSAMBLAR ZAPATO", "orden": 3}
-  ],
-  "dependencias": [{"id_origen": 13, "id_destino": 11}],
-  "recetas": [{
-    "id_receta": 4,
-    "producto": "ZAPATO TERMINADO",
-    "cantidad_producida": 10.0,
-    "materiales": [
-      {"nombre": "SUELAS", "cantidad": 10.0}
-    ]
-  }]
-}
-```
-
-## 🧱 8. Consultar diagramas de cierto artículo 
-
-**GET** `/grafo/{id_diagrama}`
-```bash
-curl -X GET "http://127.0.0.1:8000/diagramas/7" -H "accept: application/json"
-```
-
-**Respuesta**
-```json
-{
-  "catalogo_id": 7,
-  "diagramas": [
+  "entradas": [
     {
-      "descripcion": "Flujo principal del producto",
-      "id_diagrama": 8,
-      "nombre": "Mi Diagrama Principal",
-      "es_principal": true,
-      "id_catalogo": 7
+      "id_receta": 21,
+      "id_proceso": 1,
+      "id_materia": 12,
+      "rol": "IN",
+      "cantidad": 0.5,
+      "materia_nombre": "Betun",
+      "unidad": "UNIDAD"
+    }
+  ],
+  "salidas": [
+    {
+      "id_receta": 22,
+      "id_proceso": 1,
+      "id_materia": 14,
+      "rol": "OUT",
+      "cantidad": 1.0,
+      "materia_nombre": "Resultado proceso 1",
+      "unidad": "UNIDAD"
     }
   ]
 }
@@ -297,20 +170,126 @@ curl -X GET "http://127.0.0.1:8000/diagramas/7" -H "accept: application/json"
 
 ---
 
-## 🧭 Flujo completo Frontend → Backend
+### PUT `/receta/proceso/{id_proceso}`
+**Reemplaza por completo** la receta del proceso indicado (borra lo anterior y crea lo enviado).
 
-1️⃣ Crear **catálogo** (`/catalogo/`)  
-2️⃣ Crear **diagrama principal y subdiagramas** (`/diagramas/`)  
-3️⃣ Crear **procesos** asociados (`/procesos/`)  
-4️⃣ Crear **dependencias** (`/dependencias/`)  
-5️⃣ Crear **receta** de proceso final (`/recetas/`)  
-6️⃣ Crear **detalles de receta** (`/receta-detalle/`)  
-7️⃣ Consultar **grafo completo** (`/grafo/{id_diagrama}`)
+**Body**
+```json
+{
+  "entradas": [
+    { "id_materia": 12, "cantidad": 0.5 }
+  ],
+  "salidas": [
+    { "id_materia": 14, "cantidad": 1.0 }
+  ]
+}
+```
+
+**Validaciones**
+- `cantidad` > 0
+- `id_materia` debe existir
+- Si envías arrays vacíos, se eliminarán todas las filas de ese rol
+
+**Ejemplos**
+
+1) **Proceso A** produce “Resultado proceso 1” a partir de “Betun”:
+```bash
+curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_A} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entradas":[{"id_materia": 12, "cantidad": 0.5}],
+    "salidas":[ {"id_materia": 14, "cantidad": 1}]
+  }'
+```
+
+2) **Proceso B** consume “Resultado proceso 1” + “Algodon” y produce “Resultado proceso 2”:
+```bash
+# Crear "Resultado proceso 2" si no existe
+curl -s -X POST http://127.0.0.1:8000/materias \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Resultado proceso 2","unidad":"UNIDAD","tipo":"materia_procesada","costo":0.00}'
+
+# Supón que devuelve id 15
+curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_B} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entradas":[
+      {"id_materia": 14, "cantidad": 1},
+      {"id_materia": 13, "cantidad": 0.2}
+    ],
+    "salidas":[ {"id_materia": 15, "cantidad": 1}]
+  }'
+```
 
 ---
 
-💡 **Sugerencia para el frontend**
-- Crear funciones reutilizables en `api/` como `createCatalogo()`, `createDiagrama()`, etc.  
-- Manejar respuestas con `axios` y mostrar errores de validación desde el backend.
+## Endpoints de apoyo (ya existentes/ajustados)
+
+### GET `/diagramas-detalle/{id_catalogo}`
+Detalle del diagrama principal y subdiagramas, procesos, dependencias y **recetas** por proceso (en `entradas/salidas`).
+
+```bash
+curl -s http://127.0.0.1:8000/diagramas-detalle/1
+```
+
+### GET `/procesos-detalle/{id_proceso}`
+Devuelve proceso + tipo de máquina + área + (si existe) receta del proceso.
+
+```bash
+curl -s http://127.0.0.1:8000/procesos-detalle/1
+```
 
 ---
+
+## Notas y convenciones
+
+- `tipo` de materia: `materia_prima`, `materia_procesada` u `otro`.
+- `unidad` de materia: `M2`, `PAR`, `KG`, `UNIDAD`.
+- **Receta**: los endpoints trabajan a nivel de **proceso**.
+- La salida de un proceso puede ser usada como **entrada** de otro (encadenamiento).
+
+---
+
+## Ejemplos con IDs reales (de tu entorno)
+
+- **Materias** recién creadas:  
+  - Betun → `12`  
+  - Algodon → `13`  
+  - Resultado proceso 1 → `14`
+
+**Proceso A** (produce Resultado proceso 1 a partir de Betun):
+```bash
+curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_A} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entradas":[{"id_materia": 12, "cantidad": 0.5}],
+    "salidas":[ {"id_materia": 14, "cantidad": 1}]
+  }'
+```
+
+**Proceso B** (consume Resultado proceso 1 + Algodon → produce Resultado proceso 2):
+```bash
+# crear salida (si no existe)
+curl -s -X POST http://127.0.0.1:8000/materias \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Resultado proceso 2","unidad":"UNIDAD","tipo":"materia_procesada","costo":0.00}'
+
+# asume id 15 para Resultado proceso 2
+curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_B} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entradas":[
+      {"id_materia": 14, "cantidad": 1},
+      {"id_materia": 13, "cantidad": 0.2}
+    ],
+    "salidas":[ {"id_materia": 15, "cantidad": 1}]
+  }'
+```
+
+---
+
+## Troubleshooting rápido
+
+- **`UndefinedColumn: procesos.id_receta`**: borra `id_receta` del modelo `Proceso` y cualquier referencia en CRUD/routers.
+- **ImportError `RecetaDetalle` / `MateriaPrima`**: fueron removidos. Cambia a `Receta` y `Materia`.
+- **`module ... has no attribute 'routes'`**: estás pasando un *módulo* a `include_router`. Exporta el objeto `router` en `app/api/routers/__init__.py` y usa esas variables en `main.py`.
