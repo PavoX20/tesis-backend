@@ -1,9 +1,8 @@
 from typing import Optional
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field
 
 class TipoMaquina(SQLModel, table=True):
     __tablename__ = "tipos_maquinas"
-
     id_tipomaquina: Optional[int] = Field(default=None, primary_key=True)
     nombre_maquina: str
     cantidad_maquinas: Optional[int] = Field(default=None, ge=0)

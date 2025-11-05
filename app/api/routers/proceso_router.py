@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlmodel import Session, select
 from app.core.database import get_session
 from app.crud import proceso_crud
@@ -59,3 +59,18 @@ def update_proceso_endpoint(id_proceso: int, data: Proceso, session: Session = D
     if not proceso:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
     return {"status": "ok", "proceso_actualizado": proceso.id_proceso}
+
+@router.patch("/{proceso_id}/maquina", response_model=Proceso)
+def asignar_maquina(
+    proceso_id: int,
+    payload: dict = Body(..., example={"id_tipomaquina": 9}),  # null para desasignar
+    session: Session = Depends(get_session),
+):
+    id_tm = payload.get("id_tipomaquina", None)
+    try:
+        updated = proceso_crud.set_maquina_en_proceso(session, proceso_id, id_tm)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    if not updated:
+        raise HTTPException(404, "Proceso no encontrado")
+    return updated

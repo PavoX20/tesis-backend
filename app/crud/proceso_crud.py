@@ -1,5 +1,7 @@
+from typing import Optional
 from sqlmodel import Session, select
 from app.models.proceso import Proceso
+from app.models.tipo_maquina import TipoMaquina
 
 
 def get_proceso_by_id(session: Session, proceso_id: int):
@@ -55,3 +57,15 @@ def delete_proceso(session: Session, proceso_id: int):
         session.commit()
 
     return proceso
+
+def set_maquina_en_proceso(session: Session, proceso_id: int, id_tipomaquina: Optional[int]) -> Optional[Proceso]:
+    proc = session.get(Proceso, proceso_id)
+    if not proc:
+        return None
+    if id_tipomaquina is not None and session.get(TipoMaquina, id_tipomaquina) is None:
+        raise ValueError("id_tipomaquina inválido")
+    proc.id_tipomaquina = id_tipomaquina
+    session.add(proc)
+    session.commit()
+    session.refresh(proc)
+    return proc
