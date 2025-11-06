@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -23,6 +24,15 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Process Optimizer API", lifespan=lifespan)
+
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(
     CORSMiddleware,
