@@ -6,7 +6,7 @@ from app.models.area import Area
 from app.models.tipo_maquina import TipoMaquina
 from app.crud.tipo_maquina_crud import (
     get_all_tipos_maquinas, get_tipo_maquina_by_id,
-    create_tipo_maquina, update_tipo_maquina, delete_tipo_maquina
+    create_tipo_maquina
 )
 
 router = APIRouter(prefix="/tipos-maquinas", tags=["Tipos de máquinas"])

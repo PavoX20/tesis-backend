@@ -4,7 +4,7 @@ from app.core.database import get_session
 from app.models.area import Area
 from app.crud.area_crud import (
     get_all_areas, get_area_by_id,
-    create_area, update_area, delete_area
+    create_area, update_area
 )
 
 router = APIRouter(prefix="/areas", tags=["Areas"])
