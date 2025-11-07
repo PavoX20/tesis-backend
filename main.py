@@ -1,14 +1,23 @@
+import sys
 import os
+from pathlib import Path
+
+# --- ¡ESTA ES LA SOLUCIÓN! ---
+# Añade la carpeta raíz del proyecto al path de Python
+# para que pueda encontrar la carpeta 'app'
+FILE = Path(__file__).resolve()
+ROOT = FILE.parent
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+# --- FIN DE LA SOLUCIÓN ---
+
+# Ahora el resto de tu código
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Ya no importamos 'asynccontextmanager' ni 'init_db'
-# from contextlib import asynccontextmanager
-# from app.core.database import init_db
+# porque eliminamos el 'lifespan'
 
-# --- ADVERTENCIA ---
-# El error 'exit status 1' está casi seguro
-# DENTRO de uno de estos archivos que importas.
 from app.api.routers import (
     catalogo_router,
     materia_router,
@@ -24,24 +33,21 @@ from app.api.routers import (
 )
 
 # Eliminamos la función 'lifespan' y la variable 'RUN_INIT_DB'
-# Vercel no debe ejecutar init_db() al arrancar
 app = FastAPI(title="Process Optimizer API")
 
-# CORS simplificado
-# Como dijiste que no hay frontend, abrimos todo a "*"
+# CORS simplificado (Permitir todo)
 # Esto elimina la necesidad de la variable 'FRONTEND_ORIGIN'
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permitir todos los orígenes
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Routers
-# El 'crash' (exit status 1) ocurre cuando Python
-# intenta importar uno de estos routers y ese
-# archivo tiene un error (como el de Pandas).
+# Si esto falla ahora, es porque uno de ESTOS
+# archivos tiene un error de código dentro.
 for r in [
     catalogo_router,
     materia_router,
