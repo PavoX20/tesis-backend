@@ -53,3 +53,5 @@ uvicorn==0.38.0
 websockets==15.0.1
 wheel==0.45.1
 yarl==1.22.0
+sqlmodel
+psycopg2-binary
