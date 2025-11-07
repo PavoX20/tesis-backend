@@ -1,10 +1,14 @@
-# app/main.py
 import os
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import init_db
+# Ya no importamos 'asynccontextmanager' ni 'init_db'
+# from contextlib import asynccontextmanager
+# from app.core.database import init_db
+
+# --- ADVERTENCIA ---
+# El error 'exit status 1' está casi seguro
+# DENTRO de uno de estos archivos que importas.
 from app.api.routers import (
     catalogo_router,
     materia_router,
@@ -19,29 +23,25 @@ from app.api.routers import (
     dependencia_router,
 )
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Evita que el deploy falle si no hay DB en Vercel
-    if os.getenv("RUN_INIT_DB") == "1":
-        init_db()
-    yield
+# Eliminamos la función 'lifespan' y la variable 'RUN_INIT_DB'
+# Vercel no debe ejecutar init_db() al arrancar
+app = FastAPI(title="Process Optimizer API")
 
-app = FastAPI(title="Process Optimizer API", lifespan=lifespan)
-
-# CORS único
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")
-DEV = {"http://localhost:5173", "http://127.0.0.1:5173"}
-allow_origins = ["*"] if FRONTEND_ORIGIN == "*" else list(DEV | {FRONTEND_ORIGIN})
-
+# CORS simplificado
+# Como dijiste que no hay frontend, abrimos todo a "*"
+# Esto elimina la necesidad de la variable 'FRONTEND_ORIGIN'
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=["*"],  # Permitir todos los orígenes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Routers
+# El 'crash' (exit status 1) ocurre cuando Python
+# intenta importar uno de estos routers y ese
+# archivo tiene un error (como el de Pandas).
 for r in [
     catalogo_router,
     materia_router,
