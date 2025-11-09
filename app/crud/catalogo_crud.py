@@ -1,7 +1,7 @@
 from sqlmodel import Session, select
 from app.models.catalogo import Catalogo
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.procesos_dependencias import ProcesoDependencia
 from app.models.receta import Receta
 

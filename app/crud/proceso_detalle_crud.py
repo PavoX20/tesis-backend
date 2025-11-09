@@ -1,7 +1,7 @@
 # app/crud/proceso_detalle_crud.py
 from typing import List
 from sqlmodel import Session, select
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.tipo_maquina import TipoMaquina
 from app.models.area import Area
 from app.models.receta import Receta

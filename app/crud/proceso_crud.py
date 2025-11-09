@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import List, Optional
 from sqlmodel import Session, select
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.tipo_maquina import TipoMaquina
+from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
 
 def get_proceso_by_id(session: Session, proceso_id: int):
@@ -69,3 +70,43 @@ def set_maquina_en_proceso(session: Session, proceso_id: int, id_tipomaquina: Op
     session.commit()
     session.refresh(proc)
     return proc
+
+def list_procesos_lookup(
+    session: Session,
+    q: Optional[str] = None,
+    diagrama_id: Optional[int] = None,
+    catalogo_id: Optional[int] = None,
+    exclude_id: Optional[int] = None,
+    tipo: Optional[str] = None,  # "NORMAL" | "ALMACENAMIENTO"
+    skip: int = 0,
+    limit: int = 20,
+) -> List[dict]:
+    stmt = (
+        select(
+            Proceso.id_proceso,
+            Proceso.nombre_proceso,
+            Proceso.orden,
+            Proceso.id_diagrama,
+            Proceso.tipo,
+            Diagrama.nombre.label("diagrama_nombre"),
+            Diagrama.id_catalogo.label("catalogo_id"),
+        )
+        .join(Diagrama, Diagrama.id_diagrama == Proceso.id_diagrama)
+    )
+
+    if q:
+        stmt = stmt.where(Proceso.nombre_proceso.ilike(f"%{q}%"))
+    if diagrama_id:
+        stmt = stmt.where(Proceso.id_diagrama == diagrama_id)
+    if catalogo_id:
+        stmt = stmt.where(Diagrama.id_catalogo == catalogo_id)
+    if exclude_id:
+        stmt = stmt.where(Proceso.id_proceso != exclude_id)
+    if tipo:
+        t = tipo.upper()
+        if t in ("NORMAL", "ALMACENAMIENTO"):
+            stmt = stmt.where(Proceso.tipo == t)
+
+    stmt = stmt.order_by(Diagrama.nombre, Proceso.orden).offset(skip).limit(limit)
+    rows = session.exec(stmt).all()
+    return [dict(r._mapping) for r in rows]

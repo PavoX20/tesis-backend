@@ -1,35 +1,22 @@
-# API Docs — Materias, Receta, Áreas y Tipos de Máquinas (v6)
+# API Docs — v6.1 (Materias, Receta, Áreas, Tipos de Máquinas, Procesos, Dependencias)
 
-> **Entorno:** local  
-> **Base URL:** `http://127.0.0.1:8000`  
-> **Auth:** no requerida (dev)
+**Entorno:** local  
+**Base URL:** `http://127.0.0.1:8000`  
+**Auth:** no requerida (dev)
 
-Este documento extiende la versión v5. Agrega **Áreas**, **Tipos de Máquinas** y la asignación de **máquina por proceso**.
+Esta versión agrega:
+- Campo `tipo` en **procesos** con valores `NORMAL` | `ALMACENAMIENTO`.
+- Endpoint de **lookup de procesos** para combos con filtros por artículo (catálogo), diagrama, exclusiones y tipo.
+- Endpoints para **dependencias** con operación para **reemplazar predecesores** de un proceso.
 
 ---
 
-## Esquema relevante (resumen)
+## Esquema de BD (resumen de cambios relevantes)
 
-- **materias**: catálogo de insumos y resultados intermedios/finales.  
-  - `tipo` ∈ `{"materia_prima","materia_procesada","otro"}`  
-  - `unidad` ∈ `{"M2","PAR","KG","UNIDAD"}`
-- **receta**: **una fila por materia** usada o producida por el **proceso**:  
-  - Campos: `id_receta`, `id_proceso`, `id_materia`, `rol`, `cantidad`  
-  - `rol` ∈ `{"IN","OUT"}`  
-  - `cantidad` > 0  
-  - Un **proceso** puede tener **N entradas** y **N salidas**.
-- **areas**: catálogo de áreas de trabajo.  
-  - `tipo` ∈ `{"CORTE","COSTURA","ENSAMBLE","OTRO"}`
-- **tipos_maquinas**: tipos de máquina, cada uno asociado opcionalmente a un `id_area`.
-- **procesos**: puede referenciar una máquina vía `id_tipomaquina` (nullable).
+- `procesos.tipo` (`VARCHAR`) con check lógico en la API: `{"NORMAL","ALMACENAMIENTO"}`. Default `NORMAL`.
+- `procesos_dependencias` con PK compuesta `(id_origen, id_destino)`.
 
-> **Duplicidad de nombres por área**: Se **permite** que exista, por ejemplo, `PRENSA` en `área 1` y en `área 2`. Para evitar duplicados **dentro de la misma área** se sugiere este índice opcional:
-```sql
-CREATE UNIQUE INDEX IF NOT EXISTS uq_tm_nombre_area
-ON public.tipos_maquinas (LOWER(nombre_maquina), id_area);
-```
-
-> **Nota sobre rutas con slash**: Las rutas aquí listadas usan **barra final**. Llama, por ejemplo, `/areas/` y `/tipos-maquinas/?area_id=4`.
+> Si necesitas el DDL completo de la versión 6 ya aplicada, avisa y lo incluyo en un archivo `.sql` aparte.
 
 ---
 
@@ -48,186 +35,54 @@ ON public.tipos_maquinas (LOWER(nombre_maquina), id_area);
 
 ### POST `/materias`
 Crea una materia.
-
-**Body**
-```json
-{
-  "nombre": "Betun",
-  "unidad": "UNIDAD",
-  "tipo": "materia_prima",
-  "costo": 1.5
-}
-```
-
-**Ejemplo**
 ```bash
 curl -s -X POST http://127.0.0.1:8000/materias \
   -H "Content-Type: application/json" \
   -d '{"nombre":"Betun","unidad":"UNIDAD","tipo":"materia_prima","costo":1.50}'
 ```
 
-**Respuestas**
-- `200 OK`: objeto creado (según implementación actual)
-- `400 Bad Request`: validaciones (unidad/tipo inválidos, costo < 0)
-
----
-
 ### GET `/materias`
 Lista materias (paginado simple).
-
-**Query**
-- `skip` (int, default 0)
-- `limit` (int, default 50)
-
-**Ejemplo**
 ```bash
-curl -s "http://127.0.0.1:8000/materias?limit=50"
+curl -s "http://127.0.0.1:8000/materias?skip=0&limit=50"
 ```
 
----
-
 ### GET `/materias/{id_materia}`
-Obtiene una materia por id.
-
 ```bash
 curl -s http://127.0.0.1:8000/materias/14
 ```
 
-**Respuestas**
-- `200 OK`
-- `404 Not Found`
-
----
-
 ### PUT `/materias/{id_materia}`
-Actualiza una materia.
-
-**Body (parcial o total)**
-```json
-{
-  "nombre": "Algodon",
-  "unidad": "UNIDAD",
-  "tipo": "materia_prima",
-  "costo": 0.20
-}
-```
-
-**Ejemplo**
 ```bash
 curl -s -X PUT http://127.0.0.1:8000/materias/13 \
   -H "Content-Type: application/json" \
   -d '{"costo":0.25}'
 ```
 
----
-
 ### DELETE `/materias/{id_materia}`
-Elimina una materia.
-
 ```bash
 curl -s -X DELETE http://127.0.0.1:8000/materias/13
 ```
-
-**Respuestas**
-- `200 OK` / `204 No Content` (según implementación)
-- `404 Not Found`
-- `409 Conflict` (si hay FK en uso; depende de reglas ON DELETE)
 
 ---
 
 ## Receta (N IN / N OUT por proceso)
 
-> Tabla única `receta`:
-> - (proceso, materia, **rol**) con **cantidad**.
-> - `rol`: `"IN"` (entrada) o `"OUT"` (salida)  
-> - **Un proceso puede tener N entradas** y **N salidas**.
+Tabla única `receta` con `rol` ∈ `{"IN","OUT"}` y `cantidad` > 0.
 
 ### GET `/receta/proceso/{id_proceso}`
-Devuelve las filas de receta del proceso separadas en `entradas` y `salidas`.
-
-**Ejemplo**
 ```bash
 curl -s http://127.0.0.1:8000/receta/proceso/1
 ```
 
-**Respuesta (ejemplo)**
-```json
-{
-  "entradas": [
-    {
-      "id_receta": 21,
-      "id_proceso": 1,
-      "id_materia": 12,
-      "rol": "IN",
-      "cantidad": 0.5,
-      "materia_nombre": "Betun",
-      "unidad": "UNIDAD"
-    }
-  ],
-  "salidas": [
-    {
-      "id_receta": 22,
-      "id_proceso": 1,
-      "id_materia": 14,
-      "rol": "OUT",
-      "cantidad": 1.0,
-      "materia_nombre": "Resultado proceso 1",
-      "unidad": "UNIDAD"
-    }
-  ]
-}
-```
-
----
-
 ### PUT `/receta/proceso/{id_proceso}`
-**Reemplaza por completo** la receta del proceso indicado (borra lo anterior y crea lo enviado).
-
-**Body**
-```json
-{
-  "entradas": [
-    { "id_materia": 12, "cantidad": 0.5 }
-  ],
-  "salidas": [
-    { "id_materia": 14, "cantidad": 1.0 }
-  ]
-}
-```
-
-**Validaciones**
-- `cantidad` > 0
-- `id_materia` debe existir
-- Si envías arrays vacíos, se eliminarán todas las filas de ese rol
-
-**Ejemplos**
-
-1) **Proceso A** produce “Resultado proceso 1” a partir de “Betun”:
+Reemplaza por completo entradas y salidas del proceso.
 ```bash
-curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_A} \
+curl -s -X PUT http://127.0.0.1:8000/receta/proceso/1 \
   -H "Content-Type: application/json" \
   -d '{
-    "entradas":[{"id_materia": 12, "cantidad": 0.5}],
-    "salidas":[ {"id_materia": 14, "cantidad": 1}]
-  }'
-```
-
-2) **Proceso B** consume “Resultado proceso 1” + “Algodon” y produce “Resultado proceso 2”:
-```bash
-# Crear "Resultado proceso 2" si no existe
-curl -s -X POST http://127.0.0.1:8000/materias \
-  -H "Content-Type: application/json" \
-  -d '{"nombre":"Resultado proceso 2","unidad":"UNIDAD","tipo":"materia_procesada","costo":0.00}'
-
-# Supón que devuelve id 15
-curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_B} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "entradas":[
-      {"id_materia": 14, "cantidad": 1},
-      {"id_materia": 13, "cantidad": 0.2}
-    ],
-    "salidas":[ {"id_materia": 15, "cantidad": 1}]
+    "entradas":[{"id_materia":12,"cantidad":0.5}],
+    "salidas":[{"id_materia":14,"cantidad":1.0}]
   }'
 ```
 
@@ -236,27 +91,16 @@ curl -s -X PUT http://127.0.0.1:8000/receta/proceso/{ID_PROCESO_B} \
 ## Áreas
 
 ### GET `/areas/`
-Lista áreas.
-
 ```bash
 curl -s "http://127.0.0.1:8000/areas/"
 ```
 
 ### GET `/areas/{id_area}`
-Obtiene un área por id.
-
 ```bash
 curl -s "http://127.0.0.1:8000/areas/7"
 ```
 
 ### POST `/areas/`  → `201 Created`
-Crea un área.
-
-**Body**
-```json
-{ "nombre":"MASTER", "tipo":"ENSAMBLE", "personal":10, "restriccion":"MIXTO" }
-```
-
 ```bash
 curl -si -X POST http://127.0.0.1:8000/areas/ \
   -H "Content-Type: application/json" \
@@ -264,8 +108,6 @@ curl -si -X POST http://127.0.0.1:8000/areas/ \
 ```
 
 ### PUT `/areas/{id_area}`
-Actualiza un área.
-
 ```bash
 curl -si -X PUT http://127.0.0.1:8000/areas/7 \
   -H "Content-Type: application/json" \
@@ -273,8 +115,6 @@ curl -si -X PUT http://127.0.0.1:8000/areas/7 \
 ```
 
 ### DELETE `/areas/{id_area}`  → `204 No Content`
-Elimina un área.
-
 ```bash
 curl -si -X DELETE http://127.0.0.1:8000/areas/7
 ```
@@ -284,48 +124,25 @@ curl -si -X DELETE http://127.0.0.1:8000/areas/7
 ## Tipos de Máquinas
 
 ### GET `/tipos-maquinas/`
-Lista tipos de máquinas. Filtro opcional por área: `?area_id={id_area}`.
-
+Filtro opcional por `?area_id=`.
 ```bash
-# Todos
 curl -s "http://127.0.0.1:8000/tipos-maquinas/"
-
-# Por área
 curl -s "http://127.0.0.1:8000/tipos-maquinas/?area_id=4"
 ```
 
 ### GET `/tipos-maquinas/{id_tipomaquina}`
-Obtiene un tipo de máquina por id.
-
 ```bash
 curl -s "http://127.0.0.1:8000/tipos-maquinas/9"
 ```
 
 ### POST `/tipos-maquinas/`  → `201 Created`
-Crea un tipo de máquina.
-
-**Body**
-```json
-{
-  "nombre_maquina": "PRENSA",
-  "cantidad_maquinas": 1,
-  "personal_max": 2,
-  "id_area": 4
-}
-```
-
 ```bash
 curl -si -X POST http://127.0.0.1:8000/tipos-maquinas/ \
   -H "Content-Type: application/json" \
   -d '{"nombre_maquina":"PRENSA","cantidad_maquinas":1,"personal_max":2,"id_area":4}'
 ```
 
-**Errores comunes**
-- `400 Bad Request`: `id_area` inválido (no existe).
-
 ### PUT `/tipos-maquinas/{id_tipomaquina}`
-Actualiza un tipo de máquina. Solo se modifican campos enviados.
-
 ```bash
 curl -si -X PUT http://127.0.0.1:8000/tipos-maquinas/16 \
   -H "Content-Type: application/json" \
@@ -333,64 +150,177 @@ curl -si -X PUT http://127.0.0.1:8000/tipos-maquinas/16 \
 ```
 
 ### DELETE `/tipos-maquinas/{id_tipomaquina}` → `204 No Content`
-Elimina un tipo de máquina.
-
 ```bash
 curl -si -X DELETE http://127.0.0.1:8000/tipos-maquinas/16
 ```
 
 ---
 
-## Asignar máquina a un proceso
+## Procesos
 
-### PATCH `/procesos/{id_proceso}/maquina`
-Asigna o desasigna `id_tipomaquina` al proceso.
+### Modelo (resumen)
+- `tipo`: `NORMAL` | `ALMACENAMIENTO` (default `NORMAL`).
+- `distribucion`: `norm | weibull_min | expon | lognorm | gamma` (opcional).
+- `id_tipomaquina`: nullable.
+- `orden`: entero ≥ 1.
 
-**Body**
-```json
-{ "id_tipomaquina": 16 }   // usar null para desasignar
-```
-
+### POST `/procesos/`
+Crea un proceso dentro de un diagrama. Si no envías `orden` válido, se inserta al final y recalcula.
 ```bash
-# Asignar
-curl -si -X PATCH http://127.0.0.1:8000/procesos/10/maquina \
+curl -s -X POST http://127.0.0.1:8000/procesos/ \
   -H "Content-Type: application/json" \
-  -d '{"id_tipomaquina": 16}'
-
-# Desasignar
-curl -si -X PATCH http://127.0.0.1:8000/procesos/10/maquina \
-  -H "Content-Type: application/json" \
-  -d '{"id_tipomaquina": null}'
+  -d '{
+    "nombre_proceso":"COSER PIEZAS",
+    "tipo":"NORMAL",
+    "distribucion":"weibull_min",
+    "parametros":"[1.6,0.9,1]",
+    "id_diagrama":6,
+    "orden":2
+  }'
 ```
 
-**Respuestas**
-- `200 OK`: proceso actualizado
-- `400 Bad Request`: `id_tipomaquina` inválido
-- `404 Not Found`: proceso no existe
+### GET `/procesos/{id_diagrama}`
+Lista procesos del diagrama, ordenados por `orden`.
+```bash
+curl -s "http://127.0.0.1:8000/procesos/6"
+```
+
+### PUT `/procesos/{id_proceso}`
+Actualiza campos del proceso (nombre, tipo, distribución, etc.).
+
+### PATCH `/procesos/{id_proceso}/maquina`  → response `Proceso`
+Asigna o desasigna `id_tipomaquina`.
+```bash
+curl -si -X PATCH http://127.0.0.1:8000/procesos/10/maquina \
+  -H "Content-Type: application/json" \
+  -d '{"id_tipomaquina":16}'
+```
+
+### GET `/procesos/lookup`
+Devuelve una lista compacta para combos y búsquedas.
+
+**Query params**
+- `q`: texto a buscar por nombre.
+- `diagrama_id`: filtra por un diagrama específico.
+- `catalogo_id`: filtra por un artículo (catálogo). Úsalo para listar solo procesos del **mismo artículo**.
+- `exclude_id`: excluye un proceso concreto (p. ej. el proceso actual).
+- `tipo`: `NORMAL` | `ALMACENAMIENTO`.
+- `skip`, `limit`: paginación.
+
+**Ejemplos**
+```bash
+# Paginado base
+curl -s "http://127.0.0.1:8000/procesos/lookup?skip=0&limit=20"
+
+# Solo procesos del diagrama 6
+curl -s "http://127.0.0.1:8000/procesos/lookup?diagrama_id=6&limit=50"
+
+# Solo procesos del mismo artículo (catálogo) 5 y excluyendo el 10
+curl -s "http://127.0.0.1:8000/procesos/lookup?catalogo_id=5&exclude_id=10&limit=50"
+
+# Búsqueda por nombre
+curl -s "http://127.0.0.1:8000/procesos/lookup?q=coser&limit=20"
+
+# Solo tipo ALMACENAMIENTO
+curl -s "http://127.0.0.1:8000/procesos/lookup?tipo=ALMACENAMIENTO&limit=50"
+```
+
+**Respuesta (ejemplo)**
+```json
+[
+  {
+    "id_proceso": 10,
+    "nombre_proceso": "COSER PIEZAS",
+    "orden": 2,
+    "id_diagrama": 6,
+    "tipo": "NORMAL",
+    "diagrama_nombre": "Diagrama ZAPATO NOVA",
+    "catalogo_id": 5
+  }
+]
+```
+
+---
+
+## Dependencias
+
+### Conceptos
+- **Predecesores** de P: procesos que deben completarse antes de P. Representan aristas `predecesor -> P`.
+- **Sucesores** de P: procesos a los que P apunta. Aristas `P -> sucesor`.
+- Por defecto, se exigen dependencias **dentro del mismo diagrama**. Puedes desactivar la restricción vía `?exigir_mismo_diagrama=false` para permitir dependencias entre **diagramas del mismo artículo**.
+- La API evita ciclos directos obvios y referencias inexistentes.
+
+### GET `/dependencias/procesos/{id_proceso}`
+Lista predecesores y sucesores del proceso.
+```bash
+curl -s "http://127.0.0.1:8000/dependencias/procesos/10"
+```
+**Respuesta (ejemplo)**
+```json
+{
+  "predecesores": [
+    { "id_proceso": 12, "nombre_proceso": "CORTAR SUELA", "orden": 1, "id_diagrama": 7 },
+    { "id_proceso": 11, "nombre_proceso": "ENSAMBLAR ZAPATO", "orden": 3, "id_diagrama": 6 }
+  ],
+  "sucesores": []
+}
+```
+
+### PUT `/dependencias/procesos/{id_proceso}`  → `204 No Content`
+**Reemplaza todos los predecesores** del proceso dado por la lista enviada.
+```bash
+# Reemplaza predecesores de 10 por [11,12]
+curl -si -X PUT "http://127.0.0.1:8000/dependencias/procesos/10?exigir_mismo_diagrama=false" \
+  -H "Content-Type: application/json" \
+  -d '{"predecesores":[11,12]}'
+```
+Verifica:
+```bash
+curl -s "http://127.0.0.1:8000/dependencias/procesos/10"
+```
+
+### POST `/dependencias/`
+Crea una arista puntual `id_origen -> id_destino`. Útil para pruebas rápidas.
+```bash
+curl -s -X POST "http://127.0.0.1:8000/dependencias/?exigir_mismo_diagrama=true" \
+  -H "Content-Type: application/json" \
+  -d '{"id_origen":10,"id_destino":11}'
+```
+
+### DELETE `/dependencias/`
+Elimina una arista puntual `id_origen -> id_destino`.
+```bash
+curl -s -X DELETE "http://127.0.0.1:8000/dependencias/?id_origen=10&id_destino=11"
+```
+
+**Errores comunes**
+- `400 Bad Request`: proceso inexistente, ciclo directo o restricción de diagrama infringida.
+- `404 Not Found`: arista a eliminar no existe.
+- `422 Unprocessable Entity`: JSON inválido.
 
 ---
 
 ## Endpoints de apoyo
 
 ### GET `/diagramas-detalle/{id_catalogo}`
-Detalle del diagrama principal y subdiagramas, procesos, dependencias y **recetas** por proceso (en `entradas/salidas`).
-
+Detalle del diagrama principal y subdiagramas, procesos, dependencias y **recetas** por proceso.
 ```bash
-curl -s http://127.0.0.1:8000/diagramas-detalle/1
+curl -s "http://127.0.0.1:8000/diagramas-detalle/1"
 ```
 
 ### GET `/procesos-detalle/{id_proceso}`
-Devuelve proceso + tipo de máquina + área + (si existe) receta del proceso.
-
+Proceso + tipo de máquina + área + (si existe) receta del proceso.
 ```bash
-curl -s http://127.0.0.1:8000/procesos-detalle/1
+curl -s "http://127.0.0.1:8000/procesos-detalle/1"
 ```
 
 ---
 
-## Troubleshooting rápido
+## Notas de integración Frontend
 
-- `307 Temporary Redirect`: Llama con barra final, ej. `/tipos-maquinas/` o usa `-L`.  
-- `422 Unprocessable Entity`: placeholders como `{ID_TM}` deben ser **enteros reales**.  
-- `400 Bad Request` en `POST /tipos-maquinas/`: verifica que `id_area` exista.  
-- `409 Conflict` al crear tipo de máquina: si activas el índice de unicidad por (nombre, área) y envías un duplicado en la **misma** área.
+- Para el combobox de dependencias, usar `GET /procesos/lookup` con:
+  - `catalogo_id={ID_DEL_ARTICULO_ACTUAL}`
+  - `exclude_id={ID_DEL_PROCESO_ACTUAL}`
+  - Excluir en UI los resultados con `id_diagrama === diagramaIdActual` para mostrar **solo procesos de otros diagramas del mismo artículo**.
+- Guardar dependencias con `PUT /dependencias/procesos/{id}` enviando el array `predecesores` completo.
+- No es necesario recargar todo el panel al guardar; puede mostrarse un estado de “Guardado” ligero.

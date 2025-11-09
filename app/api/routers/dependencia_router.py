@@ -1,71 +1,98 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel
+from sqlmodel import Session
 from app.core.database import get_session
+from app.crud import dependencia_crud
 from app.models.procesos_dependencias import ProcesoDependencia
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
+from sqlmodel import SQLModel
 
 router = APIRouter(prefix="/dependencias", tags=["Dependencias"])
 
+class DependenciaCreate(SQLModel):
+    id_origen: int
+    id_destino: int
 
-# Crear una dependencia entre procesos
-@router.post("/")
-def create_dependencia(dep: ProcesoDependencia, session: Session = Depends(get_session)):
-    # Validar que ambos procesos existen
-    origen = session.get(Proceso, dep.id_origen)
-    destino = session.get(Proceso, dep.id_destino)
+class ProcesoMini(SQLModel):
+    id_proceso: int
+    nombre_proceso: str
+    orden: int | None = None
+    id_diagrama: int
 
-    if not origen or not destino:
-        raise HTTPException(status_code=404, detail="Alguno de los procesos no existe")
+class DependenciasDeProcesoRead(SQLModel):
+    predecesores: List[ProcesoMini]
+    sucesores: List[ProcesoMini]
 
-    # Evitar duplicados
-    existing = session.exec(
-        select(ProcesoDependencia)
-        .where(ProcesoDependencia.id_origen == dep.id_origen)
-        .where(ProcesoDependencia.id_destino == dep.id_destino)
-    ).first()
+class DependenciasDeProcesoUpdate(SQLModel):
+    sucesores: List[int] = []
 
-    if existing:
-        raise HTTPException(status_code=400, detail="La dependencia ya existe")
+@router.post("/", response_model=ProcesoDependencia, status_code=201)
+def crear_dependencia(payload: DependenciaCreate,
+                      exigir_mismo_diagrama: bool = Query(True, description="Bloquear cruces entre diagramas"),
+                      session: Session = Depends(get_session)):
+    try:
+        return dependencia_crud.crear(session, payload.id_origen, payload.id_destino, exigir_mismo_diagrama)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    session.add(dep)
-    session.commit()
-    session.refresh(dep)
-    return {"message": "Dependencia creada correctamente", "data": dep}
+@router.delete("/", status_code=204)
+def eliminar_dependencia(id_origen: int, id_destino: int, session: Session = Depends(get_session)):
+    ok = dependencia_crud.eliminar(session, id_origen, id_destino)
+    if not ok:
+        raise HTTPException(404, "Dependencia no encontrada")
+    return
 
+@router.get("/procesos/{id_proceso}", response_model=DependenciasDeProcesoRead)
+def obtener_dependencias_de_proceso(id_proceso: int, session: Session = Depends(get_session)):
+    pred, succ = dependencia_crud.listar_por_proceso(session, id_proceso)
+    if pred is None and succ is None:
+        raise HTTPException(404, "Proceso no encontrado")
 
-@router.get("/{id_diagrama}")
-def get_dependencias_by_diagrama(id_diagrama: int, session: Session = Depends(get_session)):
-    # Procesos del diagrama actual
-    procesos_ids = session.exec(
-        select(Proceso.id_proceso).where(Proceso.id_diagrama == id_diagrama)
-    ).all()
-
-    if not procesos_ids:
-        raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
-
-    # Dependencias internas
-    internas = session.exec(
-        select(ProcesoDependencia)
-        .where(ProcesoDependencia.id_origen.in_(procesos_ids))
-        .where(ProcesoDependencia.id_destino.in_(procesos_ids))
-    ).all()
-
-    # Dependencias cruzadas (origen fuera pero destino dentro, o viceversa)
-    cruzadas = session.exec(
-        select(ProcesoDependencia)
-        .where(
-            (ProcesoDependencia.id_origen.in_(procesos_ids)) |
-            (ProcesoDependencia.id_destino.in_(procesos_ids))
+    def mini(p: Proceso) -> ProcesoMini:
+        return ProcesoMini(
+            id_proceso=p.id_proceso,
+            nombre_proceso=p.nombre_proceso,
+            orden=p.orden,
+            id_diagrama=p.id_diagrama,
         )
-    ).all()
 
-    # Unificar sin duplicar
-    dependencias = { (d.id_origen, d.id_destino): d for d in internas + cruzadas }.values()
+    return DependenciasDeProcesoRead(
+        predecesores=[mini(p) for p in pred],
+        sucesores=[mini(p) for p in succ],
+    )
 
-    return {
-        "id_diagrama": id_diagrama,
-        "dependencias": [
-            {"id_origen": d.id_origen, "id_destino": d.id_destino}
-            for d in dependencias
-        ]
-    }
+class PredecesoresBody(BaseModel):
+    predecesores: list[int] = []
+
+@router.get("/procesos/{id_proceso}")
+def get_dependencias(id_proceso: int, session: Session = Depends(get_session)):
+    try:
+        pre, suc = dependencia_crud.listar_por_proceso(session, id_proceso)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+    def proj(p: Proceso):
+        return {
+            "id_proceso": p.id_proceso,
+            "nombre_proceso": p.nombre_proceso,
+            "orden": p.orden,
+            "id_diagrama": p.id_diagrama,
+        }
+
+    return {"predecesores": [proj(p) for p in pre], "sucesores": [proj(s) for s in suc]}
+
+@router.put("/procesos/{id_proceso}", status_code=204)
+def put_predecesores(
+    id_proceso: int,
+    body: PredecesoresBody,
+    exigir_mismo_diagrama: bool = Query(True),
+    session: Session = Depends(get_session),
+):
+    try:
+        dependencia_crud.reemplazar_predecesores(
+            session, id_proceso, body.predecesores, exigir_mismo_diagrama=exigir_mismo_diagrama
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return Response(status_code=204)

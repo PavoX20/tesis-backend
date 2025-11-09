@@ -8,3 +8,4 @@ from .receta_crud import *
 from .diagrama_detalle_crud import *
 from .proceso_detalle_crud import *
 from .grafo_crud import *
+from .dependencia_crud import *

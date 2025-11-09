@@ -10,3 +10,4 @@ from .proceso_router import router as proceso_router
 from .proceso_detalle_router import router as proceso_detalle_router
 from .receta_router import router as receta_router
 from .tipo_maquina_router import router as tipo_maquina_router  
+from .dependencia_router import router as dependencia_router  
