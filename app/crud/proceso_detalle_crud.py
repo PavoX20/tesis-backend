@@ -54,6 +54,9 @@ def get_proceso_detalle(session: Session, id_proceso: int):
             "parametros": proceso.parametros,
             "duracion": proceso.duracion,
             "orden": proceso.orden,
+            "tipo": proceso.tipo,              # <-- agrega esta línea
+            # opcional útil:
+            # "id_diagrama": proceso.id_diagrama,
         },
         "tipo_maquina": (
             {

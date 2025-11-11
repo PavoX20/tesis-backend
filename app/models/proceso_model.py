@@ -82,3 +82,16 @@ class ProcesoLookup(SQLModel):
     tipo: str | None = None
     diagrama_nombre: str | None = None
     catalogo_id: int | None = None
+
+class ProcesoTipoUpdate(SQLModel):
+    tipo: str
+
+    @field_validator("tipo", mode="before")
+    @classmethod
+    def _valida_tipo(cls, v):
+        if v is None:
+            raise ValueError("tipo es requerido")
+        v = str(v).upper()
+        if v not in TIPOS:
+            raise ValueError(f"tipo inválido. Use {sorted(TIPOS)}")
+        return v

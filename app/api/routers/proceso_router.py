@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlmodel import Session, select, SQLModel
 from app.core.database import get_session
 from app.crud import proceso_crud
-from app.models.proceso_model import Proceso
+from app.models.proceso_model import Proceso, ProcesoTipoUpdate
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
 
@@ -110,4 +110,18 @@ def asignar_maquina(
         raise HTTPException(400, detail=str(e))
     if not updated:
         raise HTTPException(404, "Proceso no encontrado")
+    return updated
+
+@router.patch("/{proceso_id:int}/tipo", response_model=Proceso)
+def cambiar_tipo_proceso(
+    proceso_id: int,
+    payload: ProcesoTipoUpdate,  # {"tipo": "NORMAL" | "ALMACENAMIENTO"}
+    session: Session = Depends(get_session),
+):
+    try:
+        updated = proceso_crud.set_tipo_en_proceso(session, proceso_id, payload.tipo)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
     return updated

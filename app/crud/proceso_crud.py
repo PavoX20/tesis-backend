@@ -1,6 +1,6 @@
 from typing import List, Optional
 from sqlmodel import Session, select
-from app.models.proceso_model import Proceso
+from app.models.proceso_model import Proceso, TIPOS
 from app.models.tipo_maquina import TipoMaquina
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
@@ -110,3 +110,22 @@ def list_procesos_lookup(
     stmt = stmt.order_by(Diagrama.nombre, Proceso.orden).offset(skip).limit(limit)
     rows = session.exec(stmt).all()
     return [dict(r._mapping) for r in rows]
+
+
+def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> Optional[Proceso]:
+    """Actualiza únicamente el campo `tipo` de un proceso.
+    No modifica distribucion, id_tipomaquina ni ningún otro campo.
+    """
+    proc = session.get(Proceso, proceso_id)
+    if not proc:
+        return None
+
+    t = str(nuevo_tipo).upper()
+    if t not in TIPOS:
+        raise ValueError(f"tipo inválido. Use {sorted(TIPOS)}")
+
+    proc.tipo = t
+    session.add(proc)
+    session.commit()
+    session.refresh(proc)
+    return proc
