@@ -6,6 +6,7 @@ from .proceso_model import Proceso
 from .procesos_dependencias import ProcesoDependencia
 from .receta import Receta
 from .materia_model import Materia
+from .dato_proceso_model import DatoProceso
 
 
 

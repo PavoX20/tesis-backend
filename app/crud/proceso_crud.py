@@ -1,8 +1,11 @@
 from typing import List, Optional
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
+from app.models.catalogo import Catalogo
+from app.models.dato_proceso_model import DatoProceso
 from app.models.proceso_model import Proceso, TIPOS
 from app.models.tipo_maquina import TipoMaquina
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
+from sqlalchemy.orm import aliased
 
 
 def get_proceso_by_id(session: Session, proceso_id: int):
@@ -81,6 +84,18 @@ def list_procesos_lookup(
     skip: int = 0,
     limit: int = 20,
 ) -> List[dict]:
+    # Subconsulta: toma el id_catalogo más reciente registrado en datos_proceso para cada proceso
+    dp_catalogo_id_sq = (
+        select(DatoProceso.id_catalogo)   # <-- nombre correcto de la columna
+        .where(DatoProceso.id_proceso == Proceso.id_proceso)
+        .order_by(DatoProceso.fecha.desc(), DatoProceso.id_medicion.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    # Alias de catálogo para enlazar el id_catalogo proveniente de datos_proceso
+    CatDP = aliased(Catalogo)
+
     stmt = (
         select(
             Proceso.id_proceso,
@@ -89,9 +104,19 @@ def list_procesos_lookup(
             Proceso.id_diagrama,
             Proceso.tipo,
             Diagrama.nombre.label("diagrama_nombre"),
-            Diagrama.id_catalogo.label("catalogo_id"),
+            # catálogo por diagrama
+            Diagrama.id_catalogo.label("catalogo_id_diagrama"),
+            Catalogo.nombre.label("catalogo_nombre_diagrama"),
+            # catálogo por datos_proceso (subconsulta)
+            dp_catalogo_id_sq.label("catalogo_id_dp"),
+            CatDP.nombre.label("catalogo_nombre_dp"),
+            # Exposición final priorizando: diagrama.id_catalogo -> datos_proceso.id_catalogo
+            func.coalesce(Diagrama.id_catalogo, dp_catalogo_id_sq).label("catalogo_id"),
+            func.coalesce(Catalogo.nombre, CatDP.nombre).label("catalogo_nombre"),
         )
-        .join(Diagrama, Diagrama.id_diagrama == Proceso.id_diagrama)
+        .join(Diagrama, Diagrama.id_diagrama == Proceso.id_diagrama, isouter=True)
+        .join(Catalogo, Catalogo.id_catalogo == Diagrama.id_catalogo, isouter=True)
+        .join(CatDP, CatDP.id_catalogo == dp_catalogo_id_sq, isouter=True)
     )
 
     if q:
@@ -99,7 +124,8 @@ def list_procesos_lookup(
     if diagrama_id:
         stmt = stmt.where(Proceso.id_diagrama == diagrama_id)
     if catalogo_id:
-        stmt = stmt.where(Diagrama.id_catalogo == catalogo_id)
+        # Coincidencia por catálogo ya sea por diagrama o por datos_proceso
+        stmt = stmt.where(func.coalesce(Diagrama.id_catalogo, dp_catalogo_id_sq) == catalogo_id)
     if exclude_id:
         stmt = stmt.where(Proceso.id_proceso != exclude_id)
     if tipo:
@@ -107,7 +133,8 @@ def list_procesos_lookup(
         if t in ("NORMAL", "ALMACENAMIENTO"):
             stmt = stmt.where(Proceso.tipo == t)
 
-    stmt = stmt.order_by(Diagrama.nombre, Proceso.orden).offset(skip).limit(limit)
+    stmt = stmt.order_by(Diagrama.nombre, Proceso.orden, Proceso.id_proceso).offset(skip).limit(limit)
+
     rows = session.exec(stmt).all()
     return [dict(r._mapping) for r in rows]
 
@@ -129,3 +156,5 @@ def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> O
     session.commit()
     session.refresh(proc)
     return proc
+
+

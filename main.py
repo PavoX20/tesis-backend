@@ -33,6 +33,7 @@ from app.api.routers import (
     proceso_detalle_router,
     grafo_router,
     dependencia_router,
+    dato_proceso_router,
 
 )
 
@@ -118,6 +119,7 @@ for router in [
     proceso_detalle_router,
     grafo_router,
     dependencia_router,
+    dato_proceso_router,
 ]:
     app.include_router(router)
 

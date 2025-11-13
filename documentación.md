@@ -300,6 +300,47 @@ curl -s -X DELETE "http://127.0.0.1:8000/dependencias/?id_origen=10&id_destino=1
 
 ---
 
+### GET `/datos-proceso/`
+Lista mediciones (paginado y filtros).
+**Query params**
+- `proceso_id`: filtra por proceso.
+- `fecha_desde` | `fecha_hasta`: ISO `YYYY-MM-DD`.
+- `operario`: texto (contiene).
+- `skip`, `limit`: paginación.
+- `order`: `"asc"` (por fecha asc) | `"desc"` (default).
+
+```bash
+# Todas (paginado por defecto)
+curl -L -s "http://127.0.0.1:8000/datos-proceso/"
+
+# Por proceso y rango de fechas
+curl -L -s "http://127.0.0.1:8000/datos-proceso/?proceso_id=27&fecha_desde=2024-10-01&fecha_hasta=2024-10-31"
+```
+
+### GET `/datos-proceso/{id_medicion}`
+Obtiene una medición específica.
+```bash
+curl -L -s "http://127.0.0.1:8000/datos-proceso/958"
+```
+
+### PUT `/datos-proceso/{id_medicion}`
+Actualiza una medición existente (reemplazo total de campos enviados).
+```bash
+curl -L -s -X PUT "http://127.0.0.1:8000/datos-proceso/958"   -H "Content-Type: application/json"   -d '{"cantidad":2,"notas":"Ajuste de control"}'
+```
+
+### DELETE `/datos-proceso/{id_medicion}` → `204 No Content`
+Elimina una medición.
+```bash
+curl -L -s -X DELETE "http://127.0.0.1:8000/datos-proceso/958"
+```
+
+**Errores comunes**
+- `404 Not Found`: proceso/medición inexistente.
+- `422 Unprocessable Entity`: payload inválido (tipos o formatos).
+
+---
+
 ## Endpoints de apoyo
 
 ### GET `/diagramas-detalle/{id_catalogo}`
@@ -317,10 +358,6 @@ curl -s "http://127.0.0.1:8000/procesos-detalle/1"
 ---
 
 ## Notas de integración Frontend
+- Para el combobox de nombres de procesos, usar `GET /procesos/lookup` con `catalogo_id` para limitar por artículo; alternar a “todos” quitando ese filtro.
+- Para datos de proceso, listar/filtrar con `GET /datos-proceso/` y escribir con `POST`/`PUT`/`DELETE` según corresponda.
 
-- Para el combobox de dependencias, usar `GET /procesos/lookup` con:
-  - `catalogo_id={ID_DEL_ARTICULO_ACTUAL}`
-  - `exclude_id={ID_DEL_PROCESO_ACTUAL}`
-  - Excluir en UI los resultados con `id_diagrama === diagramaIdActual` para mostrar **solo procesos de otros diagramas del mismo artículo**.
-- Guardar dependencias con `PUT /dependencias/procesos/{id}` enviando el array `predecesores` completo.
-- No es necesario recargar todo el panel al guardar; puede mostrarse un estado de “Guardado” ligero.

@@ -11,3 +11,5 @@ from .proceso_detalle_router import router as proceso_detalle_router
 from .receta_router import router as receta_router
 from .tipo_maquina_router import router as tipo_maquina_router  
 from .dependencia_router import router as dependencia_router  
+from .dato_proceso_router import router as dato_proceso_router
+from .analysis_router import router as analysis_router
