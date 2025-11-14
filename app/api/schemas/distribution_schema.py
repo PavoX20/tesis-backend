@@ -1,4 +1,3 @@
-# api/schemas/distribution_schema.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
@@ -12,8 +11,8 @@ class RankedItem(BaseModel):
 
 class AutoResponse(BaseModel):
     modo: str = "auto"
-    seleccion: str
-    parametros: List[float]
+    seleccion: Optional[str] = None          # ← antes str
+    parametros: List[float] = Field(default_factory=list)
     mensaje: str
     ranking: List[RankedItem] = Field(default_factory=list)
     image_base64: Optional[str] = None

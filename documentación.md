@@ -360,4 +360,283 @@ curl -s "http://127.0.0.1:8000/procesos-detalle/1"
 ## Notas de integración Frontend
 - Para el combobox de nombres de procesos, usar `GET /procesos/lookup` con `catalogo_id` para limitar por artículo; alternar a “todos” quitando ese filtro.
 - Para datos de proceso, listar/filtrar con `GET /datos-proceso/` y escribir con `POST`/`PUT`/`DELETE` según corresponda.
+---
 
+## Análisis estadístico de tiempos de proceso (módulo `/analysis`)
+
+**Estado:** estable (v7)  
+**Objetivo:** sugerir distribuciones de probabilidad para los tiempos de un proceso, o permitir que el usuario elija y visualice la distribución manualmente.
+
+### 1. Datos de entrada usados por el módulo
+
+Los endpoints de `/analysis` **no reciben los datos crudos del proceso** en el body. Ellos mismos los leen de la BD:
+
+- Tabla: `datos_proceso`
+- Campos relevantes:
+  - `id_proceso` (FK a `procesos.id_proceso`)
+  - `tiempo_total_seg` (`TEXT`, valor numérico en segundos guardado como string)
+  - `tiempo_total_min` (no se usa de momento para el cálculo)
+- Lógica interna (en `app/crud/dato_proceso_crud.get_tiempos_proceso`):
+  - Se consultan todos los registros con ese `id_proceso`.
+  - Se toma el campo `tiempo_total_seg` y se convierte a `float`.
+  - Se filtran valores `NULL` o vacíos.
+
+> Si un proceso tiene menos de `N` mediciones válidas (según `umbral`), el back entra en modo **manual**.
+
+---
+
+### 2. Endpoint GET — Selección automática / modo manual
+
+**URL**  
+```http
+GET /analysis/processes/{proceso_id}/distribution?umbral={N}
+```
+
+**Parámetros**
+
+- `proceso_id` (path, `int`): id del proceso en la tabla `procesos`.
+- `umbral` (query, `int`, opcional, default `20`):
+  - Si `n_muestras >= umbral` → se intenta selección automática de distribución.
+  - Si `n_muestras < umbral` → se obliga a modo manual.
+
+**Respuesta (`200 OK`, `AutoResponse` o `ManualResponse`)**
+
+Hay dos modos posibles:
+
+#### 2.1. Caso A — Modo *manual* (N de muestras menor que el umbral)
+
+Ejemplo real con `id_proceso = 834` y solo 14 mediciones:
+
+```bash
+curl "$BASE/analysis/processes/834/distribution"
+```
+
+Respuesta:
+
+```json
+{
+  "modo": "manual",
+  "seleccion": null,
+  "parametros": [],
+  "mensaje": "Proceso con solo 14 mediciones (<20). Selecciona distribución y parámetros manualmente.",
+  "ranking": [],
+  "image_base64": null
+}
+```
+
+- `modo`: `"manual"`.
+- `seleccion`: `null` (no se sugiere nada todavía).
+- `parametros`: array vacío.
+- `mensaje`: texto explicativo, pensado para mostrar en el Front.
+- `ranking`: vacío (no hay ranking cuando no se intenta auto–fit).
+- `image_base64`: `null` (no hay gráfica aún).
+
+**Uso esperado en el Front**
+
+1. El front llama a `/analysis/processes/{id}/distribution` para saber si hay suficientes datos.
+2. Si recibe `modo="manual"`:
+   - Muestra un mensaje tipo “Hay menos de N mediciones, selecciona distribución y parámetros manualmente”.
+   - Habilita el formulario para que el usuario elija la distribución y escriba parámetros.
+   - (Opcional) Usa el endpoint de parámetros (ver sección 3) para saber qué parámetros pedir.
+
+#### 2.2. Caso B — Modo *auto* (cuando existan suficientes datos)
+
+Cuando `n_muestras >= umbral`, el endpoint intentará ajustar varias distribuciones y devolver:
+
+```jsonc
+{
+  "modo": "auto",
+  "seleccion": "norm",
+  "parametros": [10.1, 2.0],
+  "mensaje": "Distribución sugerida: Normal(μ=10.1, σ=2.0)",
+  "ranking": [
+    {
+      "titulo": "Normal",
+      "ks": 0.08,
+      "p": 0.95,
+      "r2": 0.98,
+      "distrib": "norm",
+      "parametros": [10.1, 2.0]
+    },
+    {
+      "titulo": "Weibull mínima",
+      "ks": 0.12,
+      "p": 0.80,
+      "r2": 0.96,
+      "distrib": "weibull_min",
+      "parametros": [1.5, 0.0, 9.8]
+    }
+    // ...
+  ],
+  "image_base64": "<PNG de la mejor distribución en base64>"
+}
+```
+
+- `modo`: `"auto"`.
+- `seleccion`: *nombre corto* de la distribución seleccionada (`"norm"`, `"weibull_min"`, etc).
+- `parametros`: lista de parámetros mejores para esa distribución seleccionada.
+- `mensaje`: resumen listo para mostrar al usuario.
+- `ranking`: lista ordenada (mejor a peor) con métricas por distribución:
+  - `ks`, `p`, `r2` pueden venir en `null` si no aplican.
+  - `distrib`: el código a usar en otros endpoints (`"norm"`, `"weibull_min"`, `"...")`).
+  - `parametros`: parámetros asociados a esa distribución del ranking.
+- `image_base64`: PNG en base64 que el Front puede mostrar como `<img src="data:image/png;base64,..." />`.
+
+> En tu entorno actual aún no tienes un ejemplo real de modo `auto` porque la mayoría de procesos tienen menos de 20 mediciones.
+
+**Errores posibles**
+
+- `404 Proceso sin datos`  
+  - El proceso existe pero no tiene ningún registro válido en `datos_proceso`.
+
+---
+
+### 3. Endpoint GET — Parámetros requeridos por distribución
+
+Este endpoint sirve para saber **qué parámetros** debe capturar el usuario para cada distribución soportada.
+
+**URL**  
+```http
+GET /analysis/distributions/{nombre}/params
+```
+
+**Parámetros**
+
+- `nombre` (path, `str`): nombre interno de la distribución, por ejemplo:
+  - `"norm"`
+  - `"weibull_min"`
+  - `"lognorm"`
+  - `"expon"`
+  - `"gamma"`
+
+**Respuestas de ejemplo**
+
+```bash
+curl "$BASE/analysis/distributions/norm/params"
+```
+
+```json
+["media", "desviacion"]
+```
+
+```bash
+curl "$BASE/analysis/distributions/weibull_min/params"
+```
+
+```json
+["c", "loc", "scale"]
+```
+
+Uso típico en el Front:
+
+1. Cuando el usuario selecciona `"norm"` en el combo de distribuciones, el Front pregunta:
+   ```http
+   GET /analysis/distributions/norm/params
+   ```
+2. Con el arreglo resultante (`["media","desviacion"]`) crea los inputs correspondientes:
+   - `media` (float)
+   - `desviacion` (float)
+
+---
+
+### 4. Endpoint POST — Selección manual con parámetros
+
+Cuando el back está en modo manual, o cuando el usuario quiere forzar una distribución distinta a la auto–elegida, se usa este endpoint.
+
+**URL**  
+```http
+POST /analysis/processes/{proceso_id}/distribution/manual
+```
+
+**Body (`ManualRequest`)**
+
+```json
+{
+  "nombre": "norm",
+  "parametros": [10.0, 2.0],
+  "umbral": 20
+}
+```
+
+- `nombre`: código interno de la distribución (`"norm"`, `"weibull_min"`, etc.).
+- `parametros`: lista de parámetros *en el mismo orden* que entrega el endpoint `/analysis/distributions/{nombre}/params`.
+- `umbral`: se reusa para la lógica interna (normalmente `20`).
+
+**Ejemplo exitoso**
+
+```bash
+curl -X POST "$BASE/analysis/processes/834/distribution/manual" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "norm",
+    "parametros": [10.0, 2.0],
+    "umbral": 20
+  }'
+```
+
+Respuesta:
+
+```json
+{
+  "modo": "manual",
+  "seleccion": "norm",
+  "parametros": [10.0, 2.0],
+  "mensaje": "Selección manual con N<20.",
+  "image_base64": "<PNG en base64 con la gráfica ajustada>"
+}
+```
+
+**Ejemplo de error (distribución no soportada)**
+
+```bash
+curl -X POST "$BASE/analysis/processes/834/distribution/manual" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "no_existe",
+    "parametros": [1,2,3],
+    "umbral": 20
+  }'
+```
+
+Respuesta:
+
+```json
+{ "detail": "Distribucion no soportada: no_existe" }
+```
+
+---
+
+### 5. Resumen de flujos Front–Back esperados
+
+#### 5.1. Al seleccionar un proceso en el diagrama
+
+1. Front llama a:
+   ```http
+   GET /analysis/processes/{proceso_id}/distribution
+   ```
+2. Si `modo = "auto"`:
+   - Muestra la gráfica sugerida (`image_base64`).
+   - Muestra combo “Distribución recomendada” con ranking (`ranking`).
+3. Si `modo = "manual"`:
+   - Muestra mensaje de que hay pocas mediciones.
+   - No hay gráfica todavía.
+   - Habilita el formulario para que el usuario introduzca distribución y parámetros.
+
+#### 5.2. Al cambiar manualmente la distribución o parámetros
+
+1. El usuario selecciona `"norm"` o `"weibull_min"`, etc.
+2. Front consulta qué parámetros pedir:
+   ```http
+   GET /analysis/distributions/{nombre}/params
+   ```
+3. El usuario captura los valores.
+4. Front llama a:
+   ```http
+   POST /analysis/processes/{proceso_id}/distribution/manual
+   ```
+5. Back responde con:
+   - `mensaje` para mostrar.
+   - `image_base64` de la gráfica.
+   - `seleccion` + `parametros` que se pueden guardar en la tabla `procesos` (campos `distribucion` y `parametros`) si lo desean.
+
+> Los endpoints de `/analysis` **no guardan nada en la tabla `procesos` por sí solos**. Solo calculan y devuelven sugerencias y gráficas. El guardado de `distribucion` y `parametros` en `procesos` se hace desde otros endpoints (por ejemplo, `PATCH /procesos/{id}`) cuando implementemos esa parte.

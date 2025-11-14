@@ -40,10 +40,15 @@ def seleccionar_y_graficar(
     ax=None,
 ):
     """
-    - Si len(datos) >= umbral: ajuste automático y grafica la mejor distribución.
-    - Si len(datos) <  umbral:
-        * Si faltan 'nombre' o 'parametros' -> ValueError indicando parámetros requeridos.
-        * Si se proveen -> grafica histograma + distribución elegida.
+    Lógica combinada:
+
+    - Si se proporcionan `nombre` y `parametros` → SIEMPRE modo MANUAL:
+        grafica histograma + distribución elegida, sin importar N.
+
+    - Si NO se proporcionan `nombre`/`parametros`:
+        * Si len(datos) >= umbral → modo AUTO, ajusta y grafica mejor distribución.
+        * Si len(datos) <  umbral → ValueError indicando qué parámetros se requieren.
+
     Devuelve: dict con modo, seleccion, parametros, ranking|None, ax, mensaje.
     """
     x = np.asarray(datos, dtype=float)
@@ -51,7 +56,78 @@ def seleccionar_y_graficar(
     if len(x) == 0:
         raise ValueError("Sin datos finitos.")
 
-    # ----- AUTO -----
+    # --------------------------------------------------
+    # 1) MODO MANUAL TIENE PRIORIDAD SI HAY nombre+parametros
+    # --------------------------------------------------
+    if nombre is not None and parametros is not None:
+        nombre = _normaliza_nombre(nombre)
+        req = parametros_requeridos(nombre)
+        if len(parametros) != len(req):
+            raise ValueError(
+                f"Número de parámetros inválido para '{nombre}'. "
+                f"Se esperan {len(req)}: {', '.join(req)}."
+            )
+
+        if ax is None:
+            _, ax = plt.subplots()
+
+        # Histograma
+        if _is_integer_like(x):
+            lo, hi = int(np.min(x)), int(np.max(x))
+            edges = np.arange(lo - 0.5, hi + 1.5, 1)
+            ax.hist(x, bins=edges, density=True, alpha=0.4)
+        else:
+            ax.hist(x, bins="auto", density=True, alpha=0.4)
+
+        # Curva/PMF manual
+        if nombre == "beta":
+            a, b, loc, scale = parametros
+            xs = np.linspace(loc - 0.05 * scale, loc + 1.05 * scale, 800)
+            ys = beta(a=a, b=b, loc=loc, scale=scale).pdf(xs)
+            ax.plot(xs, ys)
+        else:
+            dist = _build_dist(nombre, parametros)
+            if nombre == "poisson":
+                mu = parametros[0]
+                lo = max(0, int(np.floor(mu - 4 * np.sqrt(mu))) if mu > 0 else 0)
+                hi = (
+                    int(np.ceil(mu + 4 * np.sqrt(mu)))
+                    if mu > 0
+                    else int(max(5, mu + 10))
+                )
+                xs = np.arange(lo, hi + 1)
+                ax.stem(xs, dist.pmf(xs), basefmt=" ", use_line_collection=True)
+                ax.set_xlabel("k")
+                ax.set_ylabel("PMF")
+            elif dist is None:
+                media = float(np.mean(x))
+                ax.axvline(media, linestyle="--")
+            else:
+                lo, hi = dist.ppf(1e-4), dist.ppf(1 - 1e-4)
+                if not (np.isfinite(lo) and np.isfinite(hi) and lo < hi):
+                    m, s = dist.mean(), dist.std()
+                    s = s if (np.isfinite(s) and s > 0) else 1.0
+                    lo, hi = m - 6 * s, m + 6 * s
+                xs = np.linspace(lo, hi, 800)
+                ax.plot(xs, dist.pdf(xs))
+                ax.set_xlabel("x")
+                ax.set_ylabel("PDF")
+
+        ax.set_title(_NOMBRE_LEGIBLE.get(nombre, nombre.upper()))
+        ax.grid(True, alpha=0.25)
+
+        return {
+            "modo": "manual",
+            "seleccion": nombre,
+            "parametros": [float(p) for p in parametros],
+            "ranking": None,
+            "ax": ax,
+            "mensaje": f"Selección manual con N<=20{len(x)} (umbral={umbral}).",
+        }
+
+    # --------------------------------------------------
+    # 2) MODO AUTO (solo si NO hay nombre/parametros)
+    # --------------------------------------------------
     if len(x) >= umbral:
         d = Distribuciones(x)
         ranking = d.evaluar_distribuciones()
@@ -69,8 +145,9 @@ def seleccionar_y_graficar(
                 "parametros": [round(media, 4)],
                 "ranking": [],
                 "ax": ax,
-                "mensaje": "N menor al requerido; se usó Promedio Simple.",
+                "mensaje": "No se pudo ajustar una distribución; se usó Promedio Simple.",
             }
+
         best = ranking[0]
         sel_nombre, sel_params = best[4], best[5]
         ax = d.graficar_histograma_y_ajuste(sel_nombre, ax=ax)
@@ -80,70 +157,19 @@ def seleccionar_y_graficar(
             "parametros": sel_params,
             "ranking": ranking,
             "ax": ax,
-            "mensaje": f"Selección automática con umbral={umbral}.",
+            "mensaje": f"Selección automática con N>={umbral}.",
         }
 
-    # ----- MANUAL -----
-    if nombre is None or parametros is None:
-        if nombre is None:
-            raise ValueError(f"Datos insuficientes (N<{umbral}). Debe indicar la distribución y sus parámetros.")
-        req = parametros_requeridos(nombre)
+    # --------------------------------------------------
+    # 3) N < umbral y NO se proporcionó nombre/parametros → error guiado
+    # --------------------------------------------------
+    if nombre is None:
         raise ValueError(
-            f"Datos insuficientes (N<{umbral}). Para '{_normaliza_nombre(nombre)}' ingrese: {', '.join(req)}"
+            f"Datos insuficientes (N<{umbral}). Debe indicar la distribución y sus parámetros."
         )
 
-    nombre = _normaliza_nombre(nombre)
     req = parametros_requeridos(nombre)
-    if len(parametros) != len(req):
-        raise ValueError(f"Número de parámetros inválido para '{nombre}'. Se esperan {len(req)}: {', '.join(req)}.")
-
-    if ax is None:
-        _, ax = plt.subplots()
-
-    # Histograma
-    if _is_integer_like(x):
-        lo, hi = int(np.min(x)), int(np.max(x))
-        edges = np.arange(lo - 0.5, hi + 1.5, 1)
-        ax.hist(x, bins=edges, density=True, alpha=0.4)
-    else:
-        ax.hist(x, bins="auto", density=True, alpha=0.4)
-
-    # Curva/PMF manual
-    if nombre == "beta":
-        a, b, loc, scale = parametros
-        xs = np.linspace(loc - 0.05 * scale, loc + 1.05 * scale, 800)
-        ys = beta(a=a, b=b, loc=loc, scale=scale).pdf(xs)
-        ax.plot(xs, ys)
-    else:
-        dist = _build_dist(nombre, parametros)
-        if nombre == "poisson":
-            mu = parametros[0]
-            lo = max(0, int(np.floor(mu - 4 * np.sqrt(mu))) if mu > 0 else 0)
-            hi = int(np.ceil(mu + 4 * np.sqrt(mu))) if mu > 0 else int(max(5, mu + 10))
-            xs = np.arange(lo, hi + 1)
-            ax.stem(xs, dist.pmf(xs), basefmt=" ", use_line_collection=True)
-            ax.set_xlabel("k"); ax.set_ylabel("PMF")
-        elif dist is None:
-            media = float(np.mean(x))
-            ax.axvline(media, linestyle="--")
-        else:
-            lo, hi = dist.ppf(1e-4), dist.ppf(1 - 1e-4)
-            if not (np.isfinite(lo) and np.isfinite(hi) and lo < hi):
-                m, s = dist.mean(), dist.std()
-                s = s if (np.isfinite(s) and s > 0) else 1.0
-                lo, hi = m - 6 * s, m + 6 * s
-            xs = np.linspace(lo, hi, 800)
-            ax.plot(xs, dist.pdf(xs))
-            ax.set_xlabel("x"); ax.set_ylabel("PDF")
-
-    ax.set_title(_NOMBRE_LEGIBLE.get(nombre, nombre.upper()))
-    ax.grid(True, alpha=0.25)
-
-    return {
-        "modo": "manual",
-        "seleccion": nombre,
-        "parametros": [float(p) for p in parametros],
-        "ranking": None,
-        "ax": ax,
-        "mensaje": f"Selección manual con N<{umbral}.",
-    }
+    raise ValueError(
+        f"Datos insuficientes (N<{umbral}). Para '{_normaliza_nombre(nombre)}' "
+        f"ingrese: {', '.join(req)}"
+    )

@@ -34,6 +34,7 @@ from app.api.routers import (
     grafo_router,
     dependencia_router,
     dato_proceso_router,
+    analysis_router,
 
 )
 
@@ -120,6 +121,7 @@ for router in [
     grafo_router,
     dependencia_router,
     dato_proceso_router,
+    analysis_router,
 ]:
     app.include_router(router)
 

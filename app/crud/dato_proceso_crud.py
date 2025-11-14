@@ -59,7 +59,28 @@ def delete(session: Session, id_medicion: int) -> bool:
     session.commit()
     return True
 
-def get_tiempos_proceso(proceso_id: int) -> List[float]:
-    # TODO: reemplazar por consulta real a la BD
-    return [9.8, 10.1, 9.9, 10.4, 10.0, 9.7, 10.3, 9.6, 10.2, 9.5,
-            10.6, 9.4, 10.8, 9.3, 11.0, 8.9, 10.7, 9.2, 10.5, 9.1]
+
+def get_tiempos_proceso(session: Session, proceso_id: int) -> List[float]:
+    """
+    Devuelve una lista de tiempos en segundos (float) para el proceso dado.
+    Lee la columna tiempo_total_seg (TEXT) y la castea a float.
+    """
+    stmt = (
+        select(DatoProceso.tiempo_total_seg)
+        .where(DatoProceso.id_proceso == proceso_id)
+        .order_by(DatoProceso.fecha, DatoProceso.id_medicion)
+    )
+    rows = session.exec(stmt).all()
+
+    tiempos: List[float] = []
+    for val in rows:
+        if val is None:
+            continue
+        # val viene como str con un número, por ejemplo "21.933368"
+        try:
+            tiempos.append(float(val))
+        except (TypeError, ValueError):
+            # si hubiera algún valor raro lo ignoramos
+            continue
+
+    return tiempos
