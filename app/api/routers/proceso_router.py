@@ -1,11 +1,50 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlmodel import Session, select
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlmodel import Session, select, SQLModel
 from app.core.database import get_session
 from app.crud import proceso_crud
-from app.models.proceso import Proceso
+from app.models.catalogo import Catalogo
+from app.models.proceso_model import Proceso, ProcesoTipoUpdate
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
+
 router = APIRouter(prefix="/procesos", tags=["Procesos"])
+
+# Clase para usar en response_model de /lookup
+class ProcesoLookup(SQLModel):
+    id_proceso: int
+    nombre_proceso: str
+    orden: int | None = None
+    id_diagrama: int | None = None
+    tipo: str | None = None
+    diagrama_nombre: str | None = None
+    catalogo_id: int | None = None
+    catalogo_nombre: str | None = None  # <- seguirá opcional
+
+
+
+@router.get("/lookup", response_model=list[ProcesoLookup])
+def lookup_procesos(
+    q: str | None = Query(None),
+    diagrama_id: int | None = Query(None),
+    catalogo_id: int | None = Query(None),
+    exclude_id: int | None = Query(None),
+    tipo: str | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    session: Session = Depends(get_session),
+):
+    return proceso_crud.list_procesos_lookup(
+        session=session,
+        q=q,
+        diagrama_id=diagrama_id,
+        catalogo_id=catalogo_id,
+        exclude_id=exclude_id,
+        tipo=tipo,
+        skip=skip,
+        limit=limit,
+    )
+
+
 
 
 # Crear un proceso dentro de un diagrama
@@ -42,25 +81,42 @@ def create_proceso(proceso: Proceso, session: Session = Depends(get_session)):
 
 
 # Listar procesos de un diagrama
-@router.get("/{id_diagrama}")
+@router.get("/{id_diagrama:int}")
 def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
     procesos = session.exec(
         select(Proceso).where(Proceso.id_diagrama == id_diagrama).order_by(Proceso.orden)
     ).all()
 
     if not procesos:
-        raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
+        # aún si no hay procesos, devolvemos el contexto de diagrama+catálogo (si existe)
+        diag = session.get(DiagramaDeFlujo, id_diagrama)
+        if not diag:
+            raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
+        cat = session.get(Catalogo, diag.id_catalogo) if diag.id_catalogo else None
+        return {
+            "id_diagrama": id_diagrama,
+            "catalogo": ({"id_catalogo": cat.id_catalogo, "nombre": cat.nombre} if cat else None),
+            "procesos": []
+        }
 
-    return {"id_diagrama": id_diagrama, "procesos": procesos}
+    # si hay procesos, resolvemos el catálogo a partir del diagrama
+    diag = session.get(DiagramaDeFlujo, id_diagrama)
+    cat = session.get(Catalogo, diag.id_catalogo) if diag and diag.id_catalogo else None
 
-@router.put("/{id_proceso}")
+    return {
+        "id_diagrama": id_diagrama,
+        "catalogo": ({"id_catalogo": cat.id_catalogo, "nombre": cat.nombre} if cat else None),
+        "procesos": procesos
+    }
+
+@router.put("/{id_proceso:int}")
 def update_proceso_endpoint(id_proceso: int, data: Proceso, session: Session = Depends(get_session)):
     proceso = proceso_crud.update_proceso(session, id_proceso, data)
     if not proceso:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
     return {"status": "ok", "proceso_actualizado": proceso.id_proceso}
 
-@router.patch("/{proceso_id}/maquina", response_model=Proceso)
+@router.patch("/{proceso_id:int}/maquina", response_model=Proceso)
 def asignar_maquina(
     proceso_id: int,
     payload: dict = Body(..., example={"id_tipomaquina": 9}),  # null para desasignar
@@ -73,4 +129,18 @@ def asignar_maquina(
         raise HTTPException(400, detail=str(e))
     if not updated:
         raise HTTPException(404, "Proceso no encontrado")
+    return updated
+
+@router.patch("/{proceso_id:int}/tipo", response_model=Proceso)
+def cambiar_tipo_proceso(
+    proceso_id: int,
+    payload: ProcesoTipoUpdate,  # {"tipo": "NORMAL" | "ALMACENAMIENTO"}
+    session: Session = Depends(get_session),
+):
+    try:
+        updated = proceso_crud.set_tipo_en_proceso(session, proceso_id, payload.tipo)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
     return updated

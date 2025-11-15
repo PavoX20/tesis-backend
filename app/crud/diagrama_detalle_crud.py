@@ -1,6 +1,6 @@
 from sqlmodel import select, Session
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.procesos_dependencias import ProcesoDependencia
 from app.models.receta import Receta
 from app.models.materia_model import Materia  # ajusta al nombre real de tu modelo

@@ -1,17 +1,23 @@
 # app/crud/proceso_detalle_crud.py
 from typing import List
 from sqlmodel import Session, select
-from app.models.proceso import Proceso
+from app.models.catalogo import Catalogo
+from app.models.proceso_model import Proceso
 from app.models.tipo_maquina import TipoMaquina
 from app.models.area import Area
 from app.models.receta import Receta
 from app.models.materia_model import Materia
+from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
 def get_proceso_detalle(session: Session, id_proceso: int):
     # Proceso
     proceso = session.get(Proceso, id_proceso)
     if not proceso:
         return None
+
+    # Diagrama y catálogo del proceso
+    diagrama = session.get(Diagrama, proceso.id_diagrama) if proceso.id_diagrama else None
+    catalogo = session.get(Catalogo, diagrama.id_catalogo) if diagrama and diagrama.id_catalogo else None
 
     # Tipo de máquina y área
     tipo_maquina = session.get(TipoMaquina, proceso.id_tipomaquina) if proceso.id_tipomaquina else None
@@ -54,7 +60,15 @@ def get_proceso_detalle(session: Session, id_proceso: int):
             "parametros": proceso.parametros,
             "duracion": proceso.duracion,
             "orden": proceso.orden,
+            "tipo": proceso.tipo,                       # <-- ya lo tenías
+            "id_diagrama": proceso.id_diagrama,         # <-- nuevo
         },
+        "catalogo": (                                   # <-- nuevo bloque
+            {
+                "id_catalogo": catalogo.id_catalogo,
+                "nombre": catalogo.nombre,
+            } if catalogo else None
+        ),
         "tipo_maquina": (
             {
                 "id_tipomaquina": tipo_maquina.id_tipomaquina,

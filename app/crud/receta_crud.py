@@ -1,7 +1,7 @@
 from typing import Any, List, Dict, Tuple
 from sqlmodel import Session, delete, select
 from app.models.materia_model import Materia
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.receta import Receta
 
 

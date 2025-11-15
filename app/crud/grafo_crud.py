@@ -1,6 +1,6 @@
 from typing import Dict, List
 from sqlmodel import Session, select
-from app.models.proceso import Proceso
+from app.models.proceso_model import Proceso
 from app.models.procesos_dependencias import ProcesoDependencia
 from app.models.receta import Receta
 from app.models.materia_model import Materia   # tu modelo actual
