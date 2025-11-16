@@ -3,7 +3,7 @@ from sqlmodel import Session, select, SQLModel
 from app.core.database import get_session
 from app.crud import proceso_crud
 from app.models.catalogo import Catalogo
-from app.models.proceso_model import Proceso, ProcesoTipoUpdate
+from app.models.proceso_model import Proceso, ProcesoCreate, ProcesoRead, ProcesoTipoUpdate
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
 
@@ -48,36 +48,38 @@ def lookup_procesos(
 
 
 # Crear un proceso dentro de un diagrama
-@router.post("/")
-def create_proceso(proceso: Proceso, session: Session = Depends(get_session)):
-    # Verificar que el diagrama existe
-    diagrama = session.exec(
-        select(DiagramaDeFlujo).where(DiagramaDeFlujo.id_diagrama == proceso.id_diagrama)
-    ).first()
-    if not diagrama:
-        raise HTTPException(status_code=404, detail="El diagrama no existe")
+@router.post("/", response_model=ProcesoRead)
+def create_proceso(payload: ProcesoCreate, session: Session = Depends(get_session)):
+    # Convertimos DTO -> modelo de BD
+    proc = Proceso.model_validate(payload)
 
-    # Obtener procesos existentes ordenados
-    procesos_existentes = session.exec(
-        select(Proceso).where(Proceso.id_diagrama == proceso.id_diagrama).order_by(Proceso.orden)
-    ).all()
+    # Si viene id_diagrama, aplicamos la lógica de orden dentro del diagrama
+    if proc.id_diagrama is not None:
+        diagrama = session.get(DiagramaDeFlujo, proc.id_diagrama)
+        if not diagrama:
+            raise HTTPException(status_code=404, detail="El diagrama no existe")
 
-    # Si no se especifica orden, agregar al final
-    if not proceso.orden or proceso.orden > len(procesos_existentes):
-        proceso.orden = len(procesos_existentes) + 1
-    else:
-        # Desplazar procesos siguientes hacia abajo
-        for p in procesos_existentes:
-            if p.orden >= proceso.orden:
-                p.orden += 1
-                session.add(p)
+        procesos_existentes = session.exec(
+            select(Proceso)
+            .where(Proceso.id_diagrama == proc.id_diagrama)
+            .order_by(Proceso.orden)
+        ).all()
 
-    # Crear nuevo proceso
-    session.add(proceso)
+        # Si no se especifica orden o es mayor, lo ponemos al final
+        if not proc.orden or proc.orden > len(procesos_existentes):
+            proc.orden = len(procesos_existentes) + 1
+        else:
+            # Desplazar procesos siguientes hacia abajo
+            for p in procesos_existentes:
+                if p.orden is not None and p.orden >= proc.orden:
+                    p.orden = p.orden + 1
+                    session.add(p)
+    # Si NO hay id_diagrama, dejamos proc.orden como None (permitido)
+
+    session.add(proc)
     session.commit()
-    session.refresh(proceso)
-
-    return {"message": "Proceso creado correctamente", "data": proceso}
+    session.refresh(proc)
+    return proc
 
 
 # Listar procesos de un diagrama
@@ -115,6 +117,17 @@ def update_proceso_endpoint(id_proceso: int, data: Proceso, session: Session = D
     if not proceso:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
     return {"status": "ok", "proceso_actualizado": proceso.id_proceso}
+
+@router.delete("/{id_proceso:int}")
+def delete_proceso_endpoint(
+    id_proceso: int,
+    session: Session = Depends(get_session),
+):
+    deleted = proceso_crud.delete_proceso(session, id_proceso)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Proceso no encontrado")
+    # puedes devolver lo que quieras; el front no usa la respuesta
+    return {"status": "ok", "id_eliminado": id_proceso}
 
 @router.patch("/{proceso_id:int}/maquina", response_model=Proceso)
 def asignar_maquina(

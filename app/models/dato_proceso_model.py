@@ -1,4 +1,4 @@
-# app/models/dato_proceso.py
+# app/models/dato_proceso_model.py
 from __future__ import annotations
 
 from typing import Optional
@@ -13,17 +13,19 @@ class DatoProceso(SQLModel, table=True):
     __tablename__ = "datos_proceso"
 
     id_medicion: Optional[int] = Field(default=None, primary_key=True)
-    id_proceso: int = Field(foreign_key="public.procesos.id_proceso")
-    id_catalogo: int = Field(foreign_key="public.catalogo.id_catalogo")
+
+    # ANTES:
+    # id_proceso: int = Field(foreign_key="public.procesos.id_proceso")
+    # id_catalogo: int = Field(foreign_key="public.catalogo.id_catalogo")
+
+    # AHORA (sin schema "public."):
+    id_proceso: int = Field(foreign_key="procesos.id_proceso")
+    id_catalogo: int = Field(foreign_key="catalogo.id_catalogo")
 
     cantidad: Optional[float] = Field(default=None)
-    # anotación con datetime.date + definición de columna con SQLAlchemy
     fecha: date = Field(sa_column=Column(SADate, nullable=False))
-
-    # ahora son TEXT en BD → anota str | None
     tiempo_total_min: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     tiempo_total_seg: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
-
     operario: Optional[str] = Field(default=None)
     notas: Optional[str] = Field(default=None)
 
