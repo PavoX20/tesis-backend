@@ -1,10 +1,10 @@
 
 import numpy as np
-import pandas as pd
+#import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats as st
-from scipy.stats import norm, expon, gamma, lognorm, beta, weibull_min, poisson, uniform
-import pandas as pd
+#from scipy.stats import norm, expon, gamma, lognorm, beta, weibull_min, poisson, uniform
+#import pandas as pd
 
 # Nombres legibles en MAYÚSCULAS (sin tildes)
 _NOMBRE_LEGIBLE = {
