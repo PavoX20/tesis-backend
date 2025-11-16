@@ -12,6 +12,7 @@ venv/
 .envrc
 .venv/
 .env.*
+venv_vercel/
 
 # Conda
 conda-meta/
@@ -44,3 +45,5 @@ htmlcov/
 # Others
 *.bak
 *.tmp
+*.sql
+
