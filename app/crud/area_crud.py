@@ -12,7 +12,7 @@ def create_area(session: Session, data: Area):
     session.commit()
     session.refresh(data)
     return data
-
+#
 def update_area(session: Session, area_id: int, data: Area):
     area = session.get(Area, area_id)
     if not area:
