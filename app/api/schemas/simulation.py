@@ -9,6 +9,7 @@ class ProductoSolicitud(BaseModel):
 class SimulationRequest(BaseModel):
     productos: List[ProductoSolicitud]
     asignacion_manual: Optional[Dict[str, int]] = None
+    solo_info: bool = False
 
 # --- OUTPUT SCHEMAS (Lo que respondes) ---
 
@@ -54,7 +55,11 @@ class SimulationResponse(BaseModel):
     gantt_data: Dict[str, List[List[float]]]
     detalles_procesos: Dict[str, Any]
 
-    class Config:
+class Config:
         # Esto permite que si el backend devuelve un campo extra no explote, 
         # o si falta alguno opcional lo maneje.
         from_attributes = True
+    
+class ProductoRequest(BaseModel):
+    id_catalogo: int
+    cantidad: int

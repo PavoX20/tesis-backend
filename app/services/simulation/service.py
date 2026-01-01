@@ -7,7 +7,7 @@ import logging
 import traceback
 from collections import defaultdict
 
-from app.services.simulation import data_loader, engine
+from app.services.simulation import data_loader, engine, funcion 
 from app.api.schemas.simulation import SimulationRequest
 
 logger = logging.getLogger("uvicorn.error")
@@ -17,7 +17,8 @@ def safe_int(val):
     except: return 0
 
 def run_simulation(db: Session, request: SimulationRequest):
-    print("--- INICIANDO SIMULACIÓN (RASTREO CODICIOSO / MULTI-PROVIDER) ---")
+    mode_desc = "PREVIEW (SOLO INFO)" if request.solo_info else "SIMULACIÓN COMPLETA"
+    print(f"--- INICIANDO {mode_desc} ---")
     
     # 1. CARGA DE DATOS
     try:
@@ -34,16 +35,13 @@ def run_simulation(db: Session, request: SimulationRequest):
     diagramas_de_flujo = data["diagramas_de_flujo"]
     materias_info = data.get("materias", pd.DataFrame()) 
     
-    # --- [FIX] ENRIQUECER RECETA CON ID_DIAGRAMA ---
+    # Enriquece receta
     if not receta_global.empty and 'ID_DIAGRAMA' not in receta_global.columns:
         if not procesos.empty and 'ID_PROCESO' in procesos.columns and 'ID_DIAGRAMA' in procesos.columns:
             receta_global = receta_global.merge(
                 procesos[['ID_PROCESO', 'ID_DIAGRAMA']], 
-                on='ID_PROCESO', 
-                how='left'
+                on='ID_PROCESO', how='left'
             )
-            print("DEBUG: ID_DIAGRAMA inyectado en recetas.")
-    # -----------------------------------------------
 
     # 2. INPUT
     prod_data = []
@@ -64,81 +62,59 @@ def run_simulation(db: Session, request: SimulationRequest):
             id_diagrama_principal = safe_int(row['ID_DIAGRAMA']) 
             cantidad_pedido = row['Cantidad']
 
-            # --- A. RASTREO CODICIOSO DE DEPENDENCIAS ---
+            # --- RASTREO (Igual que antes) ---
             ids_diagramas_relacionados = set()
-            if id_diagrama_principal > 0:
-                ids_diagramas_relacionados.add(id_diagrama_principal)
+            if id_diagrama_principal > 0: ids_diagramas_relacionados.add(id_diagrama_principal)
             
             try:
-                # Mapa: ID_MATERIA (Output) -> [Lista de ID_DIAGRAMA que lo fabrican]
                 mapa_produccion = defaultdict(list)
-                
                 if not receta_global.empty and 'ID_DIAGRAMA' in receta_global.columns:
                     salidas = receta_global[receta_global['ROL'] == 'OUT']
                     for _, r_out in salidas.iterrows():
                         prod_id = safe_int(r_out['ID_MATERIA'])
                         diag_id = safe_int(r_out['ID_DIAGRAMA'])
                         if prod_id > 0 and diag_id > 0:
-                            # Agregamos a la lista si no está ya
                             if diag_id not in mapa_produccion[prod_id]:
                                 mapa_produccion[prod_id].append(diag_id)
                 
-                # Bucle de descubrimiento
                 if mapa_produccion:
                     cola_diagramas = [id_diagrama_principal]
                     procesados = set()
-                    
                     while cola_diagramas:
                         curr_diag_id = cola_diagramas.pop(0)
                         if curr_diag_id in procesados: continue
                         procesados.add(curr_diag_id)
-                        
-                        # ¿Qué procesos tiene este diagrama?
                         procs_diag = diagramas_de_flujo[
                             diagramas_de_flujo['ID_DIAGRAMA'].apply(safe_int) == curr_diag_id
                         ]['ID_PROCESO'].unique()
-                        
                         if len(procs_diag) > 0:
-                            # ¿Qué insumos consumen estos procesos?
                             insumos = receta_global[
                                 (receta_global['ID_PROCESO'].isin(procs_diag)) & 
                                 (receta_global['ROL'] != 'OUT')
                             ]['ID_MATERIA'].unique()
-                            
                             for insumo_id in insumos:
                                 id_insumo = safe_int(insumo_id)
-                                # Buscamos TODOS los diagramas que produzcan este insumo
                                 proveedores = mapa_produccion.get(id_insumo, [])
-                                
                                 for diag_origen in proveedores:
-                                    # La clave: Agregamos el proveedor AUNQUE sea diferente al actual
-                                    # (incluso si hay duplicidad de producción, mejor que sobre a que falte)
                                     if diag_origen not in ids_diagramas_relacionados:
-                                        print(f"DEBUG: Insumo {id_insumo} trae al Diagrama {diag_origen}")
                                         ids_diagramas_relacionados.add(diag_origen)
                                         cola_diagramas.append(diag_origen)
-
             except Exception as e:
-                print(f"WARN: Falló rastreo ({e}). Usando principal.")
+                print(f"WARN: Rastreo falló ({e})")
 
             lista_ids_str = [str(x) for x in ids_diagramas_relacionados if x > 0]
-            print(f"DEBUG: Diagramas finales para {id_producto}: {lista_ids_str}")
-
             if not lista_ids_str: continue
 
-            # --- B. CARGA DEL SUPER-GRAFO ---
+            # --- CARGA Y ENRIQUECIMIENTO ---
             df_diag_d = diagramas_de_flujo[
                 diagramas_de_flujo['ID_DIAGRAMA'].apply(safe_int).astype(str).isin(lista_ids_str)
             ].copy()
-            
             if df_diag_d.empty: continue
 
-            # --- C. ENRIQUECIMIENTO ---
             df_diag_d = df_diag_d.merge(procesos, on='ID_PROCESO', how='left', suffixes=('', '_proc'))
             
             col_nombre_proceso = 'NOMBRE PROCESO' 
             if 'NOMBRE_PROCESO' in df_diag_d.columns: col_nombre_proceso = 'NOMBRE_PROCESO'
-            
             nombres_procesos_map = {}
             if col_nombre_proceso in df_diag_d.columns:
                 temp_map = df_diag_d[['ID_PROCESO', col_nombre_proceso]].drop_duplicates()
@@ -160,14 +136,54 @@ def run_simulation(db: Session, request: SimulationRequest):
             df_diag_d['CANTIDAD MAQUINAS'] = df_diag_d['CANTIDAD MAQUINAS'].fillna(1).astype(int)
             df_diag_d['PERSONAL MAX'] = df_diag_d['PERSONAL MAX'].fillna(100).astype(int)
 
+            # --- [MODO PREVIEW: SOLO INFO] ---
+            if request.solo_info:
+                # Si solo piden info, construimos la estructura base sin calcular nada
+                detalles_preview = {}
+                # Obtenemos todos los procesos únicos del diagrama completo
+                unique_procs = df_diag_d.drop_duplicates(subset=['ID_PROCESO'])
+                
+                for _, row_p in unique_procs.iterrows():
+                    pid = safe_int(row_p['ID_PROCESO'])
+                    nombre = nombres_procesos_map.get(pid, f"Proceso {pid}")
+                    area_id = safe_int(row_p['ID_AREA'])
+                    p_max = int(row_p['PERSONAL MAX'])
+                    
+                    detalles_preview[str(pid)] = {
+                        "t": 0,
+                        "pers": 0, # Cero para indicar "sin calcular"
+                        "maq": 0,
+                        "area": f"Area {area_id}",
+                        "nombre_proceso": nombre,
+                        "max_pers": p_max
+                    }
+                
+                # Devolvemos resultado "vacío" pero con la estructura de procesos
+                resultados_simulacion.append({
+                    "diagrama_id": int(id_diagrama_principal),
+                    "tiempo_total": 0,
+                    "buffer_ideal": 0,
+                    "es_factible": True,
+                    
+                    # [FIX] Agregamos campos requeridos por el Schema aunque estén vacíos
+                    "cuello_botella": 0, 
+                    "materiales_por_proceso": {}, 
+                    
+                    "lista_materiales_total": [],
+                    "analisis_escenarios": [],
+                    "gantt_data": {},
+                    "detalles_procesos": detalles_preview 
+                })
+                continue # Saltamos al siguiente producto
+            # ---------------------------------
+
+            # ... (Resto del código de simulación completa IGUAL que antes) ...
             ids_procesos = df_diag_d['ID_PROCESO'].unique()
 
-            # --- D. RECETAS (AUTO-FILL) ---
+            # --- D. RECETAS ---
             df_rec_d = receta_global[receta_global['ID_PROCESO'].isin(ids_procesos)].copy()
-            
             procesos_con_receta = df_rec_d['ID_PROCESO'].unique() if not df_rec_d.empty else []
             procesos_sin_receta = [pid for pid in ids_procesos if pid not in procesos_con_receta]
-            
             if procesos_sin_receta:
                 dummy_rows = []
                 for pid in procesos_sin_receta:
@@ -180,12 +196,10 @@ def run_simulation(db: Session, request: SimulationRequest):
 
             df_rec_d['ID_PRODUCTO'] = df_rec_d['ID_MATERIA'] 
             df_rec_d['TIPO_PRODUCTO'] = np.where(df_rec_d['ROL'] == 'OUT', 'producto', 'materia')
-            
-            # Normalizamos ID_DIAGRAMA al principal para evitar que el Engine los separe
             df_rec_d['ID_DIAGRAMA'] = str(id_diagrama_principal)
             df_rec_d['CANTIDAD PRODUCION'] = df_rec_d['CANTIDAD UNITARIA'] * cantidad_pedido
 
-            # --- E. CÁLCULO DE CAPACIDAD ---
+            # --- E. CÁLCULO ---
             calc_rows_final = [] 
             reporte_escenarios = [] 
             todos_los_detalles_visuales = {} 
@@ -199,15 +213,18 @@ def run_simulation(db: Session, request: SimulationRequest):
                 personal_disponible = int(diag_area.iloc[0]['PERSONAL AREA'])
                 if personal_disponible <= 0: personal_disponible = 1
                 
-                diag_area_uniq = diag_area.drop_duplicates(subset=['ID_PROCESO'])
-                
-                capacidad_fisica_total = 0
-                for _, row_maq in diag_area_uniq.iterrows():
-                    c_maq = int(row_maq.get('CANTIDAD MAQUINAS', 1))
-                    p_max = int(row_maq.get('PERSONAL MAX', 1))
-                    capacidad_fisica_total += (c_maq * p_max)
+                diag_area_uniq = diag_area.drop_duplicates(subset=['ID_PROCESO']).copy()
+                diag_area_uniq['PERSONAL FIJO'] = 0
+                diag_area_uniq['TIPO'] = 'NORMAL' 
 
-                personal_para_simulacion = min(personal_disponible, capacidad_fisica_total)
+                max_map = dict(zip(diag_area_uniq['ID_PROCESO'], diag_area_uniq['PERSONAL MAX']))
+
+                if request.asignacion_manual:
+                    for pid_str, cant in request.asignacion_manual.items():
+                        pid = safe_int(pid_str)
+                        mask = diag_area_uniq['ID_PROCESO'] == pid
+                        if mask.any():
+                            diag_area_uniq.loc[mask, 'PERSONAL FIJO'] = int(cant)
 
                 tiempos_ref = []
                 for _, row_p in diag_area_uniq.iterrows():
@@ -220,28 +237,11 @@ def run_simulation(db: Session, request: SimulationRequest):
                     })
                 df_tiempos = pd.DataFrame(tiempos_ref)
                 
-                combinaciones = pd.DataFrame()
-                
-                if personal_disponible >= capacidad_fisica_total:
-                    combo_full = {'TOTAL_PERSONAS': capacidad_fisica_total, 'TOTAL_MAQUINAS': 0}
-                    total_maquinas_count = 0
-                    for _, row_maq in diag_area_uniq.iterrows():
-                        pid = safe_int(row_maq['ID_PROCESO'])
-                        c_maq = int(row_maq.get('CANTIDAD MAQUINAS', 1))
-                        p_max = int(row_maq.get('PERSONAL MAX', 1))
-                        combo_full[f"P_{pid}"] = c_maq * p_max 
-                        combo_full[f"M_{pid}"] = c_maq
-                        total_maquinas_count += c_maq
-                    combo_full['TOTAL_MAQUINAS'] = total_maquinas_count
-                    combinaciones = pd.DataFrame([combo_full])
-                else:
-                    combinaciones = engine.combos_personal(diag_area_uniq, personal_para_simulacion)
-                
-                if request.asignacion_manual:
-                    for pid_str, cant in request.asignacion_manual.items():
-                        col = f"P_{pid_str}"
-                        if col in combinaciones.columns:
-                            combinaciones = combinaciones[combinaciones[col] == int(cant)]
+                try:
+                    combinaciones = funcion.combos_personal(diag_area_uniq, personal_disponible)
+                except Exception as e:
+                    print(f"ERROR Motor: {e}")
+                    combinaciones = pd.DataFrame()
 
                 lista_evaluada = []
                 if not combinaciones.empty:
@@ -249,20 +249,33 @@ def run_simulation(db: Session, request: SimulationRequest):
                         t_ciclo_area = 0.0
                         detalles_combo = {}
                         valid_combo = True
+                        total_pers_row = 0
+                        total_maqs_row = 0
+                        
                         for _, t_row in df_tiempos.iterrows():
                             pid = safe_int(t_row['ID_PROCESO'])
-                            n_pers = row_comb.get(f"P_{pid}", 0)
-                            n_maqs = row_comb.get(f"M_{pid}", 0)
+                            col_p = f"P_{pid}"
+                            col_m = f"M_{pid}"
+                            n_pers = row_comb.get(col_p, 0)
+                            
+                            if col_m in row_comb: n_maqs = row_comb[col_m]
+                            else: n_maqs = 1 
+                            
+                            total_pers_row += n_pers
+                            total_maqs_row += n_maqs
+
                             if n_pers <= 0: t_ciclo_area = float('inf'); valid_combo = False
                             else: t_ciclo_area += t_row['T'] / n_pers
-                            detalles_combo[str(safe_int(pid))] = {
+                            
+                            detalles_combo[str(pid)] = {
                                 "personal": int(n_pers), "maquinas": int(n_maqs), "tiempo_base": t_row['T']
                             }
+
                         if valid_combo:
                             lista_evaluada.append({
                                 "ranking_score": t_ciclo_area,
-                                "total_personal_usado": int(row_comb.get('TOTAL_PERSONAS', 0)),
-                                "total_maquinas_usadas": int(row_comb.get('TOTAL_MAQUINAS', 0)),
+                                "total_personal_usado": int(total_pers_row),
+                                "total_maquinas_usadas": int(total_maqs_row),
                                 "detalle_asignacion": detalles_combo
                             })
 
@@ -296,14 +309,16 @@ def run_simulation(db: Session, request: SimulationRequest):
                         'N PERSONAL': info['personal'],
                         'CAPACIDAD PROCESO': (1.0 / info['tiempo_base']) * info['personal'] if info['tiempo_base'] > 0 else 0.1
                     })
-                    
                     nombre_real = nombres_procesos_map.get(pid_int, f"Proceso {pid_int}")
+                    max_p_val = max_map.get(pid_int, 99)
+                    
                     todos_los_detalles_visuales[str(pid_int)] = {
                         "t": info['tiempo_base'],
                         "pers": info['personal'],
                         "maq": info['maquinas'],
                         "area": f"Area {area_id}",
-                        "nombre_proceso": nombre_real
+                        "nombre_proceso": nombre_real,
+                        "max_pers": int(max_p_val)
                     }
 
             if not calc_rows_final: continue
@@ -356,11 +371,9 @@ def run_simulation(db: Session, request: SimulationRequest):
                     "buffer_ideal": float(buf_ideal),
                     "es_factible": bool(ok),
                     "cuello_botella": int(modelo["cb"]["ID_PROCESO"]),
-                    
                     "lista_materiales_total": l_mat_global,       
                     "materiales_por_proceso": detalles_mat_proceso, 
                     "analisis_escenarios": reporte_escenarios,    
-                    
                     "gantt_data": timeline_str,
                     "detalles_procesos": todos_los_detalles_visuales
                 })
