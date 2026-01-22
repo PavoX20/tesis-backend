@@ -31,6 +31,7 @@ from app.api.routers import (
     dependencia_router,
     dato_proceso_router,
     analysis_router,
+    simulation_router
 )
 
 # --- 4. LISTA DE IP PERMITIDAS (YA NO SE USA) ---
@@ -113,6 +114,7 @@ for router in [
     dependencia_router,
     dato_proceso_router,
     analysis_router,
+    simulation_router
 ]:
     app.include_router(router)
 
