@@ -55,7 +55,7 @@ class SimulationResponse(BaseModel):
     gantt_data: Dict[str, List[List[float]]]
     detalles_procesos: Dict[str, Any]
 
-class Config:
+    class Config:
         # Esto permite que si el backend devuelve un campo extra no explote, 
         # o si falta alguno opcional lo maneje.
         from_attributes = True
@@ -63,3 +63,16 @@ class Config:
 class ProductoRequest(BaseModel):
     id_catalogo: int
     cantidad: int
+
+class VisualSimulationRequest(BaseModel):
+    id_catalogo: int
+    cantidad: int
+
+class VisualSimulationResponse(BaseModel):
+    modelo: str
+    meta_cantidad: int
+    resumen: Dict[str, Any]      # { "tiempo_total": 480, ... }
+    timeline: List[Dict[str, Any]] # La "película" completa frame a frame
+    
+    # --- ¡ESTA ES LA LÍNEA QUE FALTABA! ---
+    grafica_base64: Optional[str] = None
