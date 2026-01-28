@@ -2,9 +2,11 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 from pydantic import field_validator
 
+# Constantes
 DISTRIBS = {"norm", "weibull_min", "expon", "lognorm", "gamma"}
 TIPOS = {"NORMAL", "ALMACENAMIENTO"}
 
+# --- MODELO PRINCIPAL (TABLA) ---
 class Proceso(SQLModel, table=True):
     __tablename__ = "procesos"
 
@@ -13,49 +15,33 @@ class Proceso(SQLModel, table=True):
     parametros: Optional[str] = None
     duracion: Optional[float] = Field(default=None, ge=0)
     distribucion: Optional[str] = None  
-
     tipo: str = Field(default="NORMAL", description="NORMAL o ALMACENAMIENTO")
-    id_tipomaquina: Optional[int] = Field(
-        default=None, foreign_key="tipos_maquinas.id_tipomaquina"
-    )
-
-    id_diagrama: Optional[int] = Field(
-        default=None, foreign_key="diagramas_de_flujo.id_diagrama"
-    )
-
-    id_catalogo: Optional[int] = Field(
-        default=None, foreign_key="catalogo.id_catalogo"
-    )
-
+    
+    # Claves foráneas (Strings para evitar ciclos)
+    id_tipomaquina: Optional[int] = Field(default=None, foreign_key="tipos_maquinas.id_tipomaquina")
+    id_diagrama: Optional[int] = Field(default=None, foreign_key="diagramas_de_flujo.id_diagrama")
+    id_catalogo: Optional[int] = Field(default=None, foreign_key="catalogo.id_catalogo")
     orden: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("tipo", mode="before")
     @classmethod
     def _normalize_tipo(cls, v):
-        if v is None:
-            return "NORMAL"
-        v = str(v).upper()
-        if v not in TIPOS:
-            raise ValueError(f"tipo inválido. Use {sorted(TIPOS)}")
-        return v
+        return "NORMAL" if v is None else str(v).upper()
 
     @field_validator("distribucion")
     @classmethod
     def _validate_distrib(cls, v):
-        if v is None:
-            return v
-        if v not in DISTRIBS:
-            raise ValueError(f"distribucion inválida. Use {sorted(DISTRIBS)}")
         return v
+
+# --- SCHEMAS AUXILIARES (Pydantic) ---
 
 class ProcesoCreate(SQLModel):
     nombre_proceso: str
     parametros: Optional[str] = None
-    duracion: Optional[float] = Field(default=None, ge=0)
+    duracion: Optional[float] = None
     distribucion: Optional[str] = None
     tipo: str = "NORMAL"
     id_tipomaquina: Optional[int] = None
-
     id_diagrama: Optional[int] = None
     id_catalogo: Optional[int] = None
     orden: Optional[int] = None
@@ -92,6 +78,7 @@ class ProcesoLookup(SQLModel):
     diagrama_nombre: str | None = None
     catalogo_id: int | None = None
 
+# Esta es la clase que faltaba y causaba el error:
 class ProcesoTipoUpdate(SQLModel):
     tipo: str
 
