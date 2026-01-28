@@ -6,10 +6,10 @@ from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 router = APIRouter(prefix="/diagramas", tags=["Diagramas"])
 
 
-# Crear un nuevo diagrama
+
 @router.post("/")
 def create_diagrama(diagrama: Diagrama, session: Session = Depends(get_session)):
-    # Verificar si ya hay un principal para ese catálogo
+
     if diagrama.es_principal:
         existing = session.exec(
             select(Diagrama).where(
@@ -29,7 +29,7 @@ def create_diagrama(diagrama: Diagrama, session: Session = Depends(get_session))
     return {"message": "Diagrama creado correctamente", "data": diagrama}
 
 
-# Listar todos los diagramas de un catálogo
+
 @router.get("/{id_catalogo}")
 def list_diagramas(id_catalogo: int, session: Session = Depends(get_session)):
     diagramas = session.exec(

@@ -1,4 +1,3 @@
-# app/api/routers/datos_proceso_router.py
 from __future__ import annotations
 from typing import List, Optional
 from datetime import date
@@ -14,7 +13,8 @@ from app.models.dato_proceso_model import (
 )
 from app.crud import dato_proceso_crud
 from app.crud import proceso_crud
-from app.models.proceso_model import Proceso  # para validar existencia de proceso
+from app.models.proceso_model import Proceso  
+
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
 router = APIRouter(prefix="/datos-proceso", tags=["Datos de proceso"])
@@ -40,9 +40,12 @@ def list_datos_proceso(
             DatoProceso.tiempo_total_seg,
             DatoProceso.operario,
             DatoProceso.notas,
-            Proceso.nombre_proceso.label("proceso_nombre"),      # <-- nuevo
-            Catalogo.id_catalogo.label("catalogo_id"),           # <-- nuevo
-            Catalogo.nombre.label("catalogo_nombre"),            # <-- nuevo
+            Proceso.nombre_proceso.label("proceso_nombre"),      
+
+            Catalogo.id_catalogo.label("catalogo_id"),           
+
+            Catalogo.nombre.label("catalogo_nombre"),            
+
         )
         .join(Proceso, Proceso.id_proceso == DatoProceso.id_proceso)
         .join(Diagrama, Diagrama.id_diagrama == Proceso.id_diagrama, isouter=True)
@@ -63,7 +66,6 @@ def list_datos_proceso(
 
     rows = session.exec(stmt).all()
     return [dict(r._mapping) for r in rows]
-
 
 @router.get("/{id_medicion:int}")
 def get_dato_proceso(
@@ -96,7 +98,7 @@ def get_dato_proceso(
 
 @router.post("/", response_model=DatoProcesoRead)
 def create_dato(payload: DatoProcesoCreate, session: Session = Depends(get_session)):
-    # valida que exista el proceso
+
     if not proceso_crud.get_proceso_by_id(session, payload.id_proceso):
         raise HTTPException(404, "Proceso no existe")
     obj = DatoProceso.model_validate(payload)
@@ -106,7 +108,7 @@ def create_dato(payload: DatoProcesoCreate, session: Session = Depends(get_sessi
 def bulk_create_datos(payload: List[DatoProcesoCreate], session: Session = Depends(get_session)):
     if not payload:
         return []
-    # valida procesos (opcional: podrías omitir para rendimiento)
+
     for p in payload:
         if not proceso_crud.get_proceso_by_id(session, p.id_proceso):
             raise HTTPException(404, f"Proceso {p.id_proceso} no existe")
@@ -119,7 +121,7 @@ def update_dato(
     patch: DatoProcesoUpdate,
     session: Session = Depends(get_session),
 ):
-    # si envían cambio de proceso, valida que exista
+
     if patch.id_proceso is not None and not proceso_crud.get_proceso_by_id(session, patch.id_proceso):
         raise HTTPException(404, "Proceso no existe")
     dp = dato_proceso_crud.update(session, id_medicion, patch.dict(exclude_unset=True))

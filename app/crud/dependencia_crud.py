@@ -2,7 +2,7 @@ from typing import Iterable, List, Tuple
 from sqlmodel import Session, select, delete
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 from app.models.procesos_dependencias import ProcesoDependencia
-from app.models.proceso_model import Proceso  # tu modelo existente
+from app.models.proceso_model import Proceso  
 
 def _get_proceso(session: Session, pid: int) -> Proceso | None:
     return session.get(Proceso, pid)
@@ -38,7 +38,7 @@ def eliminar(session: Session, id_origen: int, id_destino: int) -> bool:
     return True
 
 def listar_por_proceso(session: Session, id_proceso: int) -> Tuple[List[Proceso], List[Proceso]]:
-    # predecesores: quienes apuntan a id_proceso
+
     q_in = (
         select(Proceso)
         .join(ProcesoDependencia, ProcesoDependencia.id_origen == Proceso.id_proceso)
@@ -47,7 +47,6 @@ def listar_por_proceso(session: Session, id_proceso: int) -> Tuple[List[Proceso]
     )
     predecesores = session.exec(q_in).all()
 
-    # sucesores: a quienes apunta id_proceso
     q_out = (
         select(Proceso)
         .join(ProcesoDependencia, ProcesoDependencia.id_destino == Proceso.id_proceso)
@@ -64,7 +63,6 @@ def reemplazar_sucesores(session: Session, id_proceso: int, nuevos_sucesores: It
 
     nuevos = set(int(x) for x in nuevos_sucesores if int(x) != id_proceso)
 
-    # validar existencia y política de mismo diagrama
     if nuevos:
         rs = session.exec(select(Proceso).where(Proceso.id_proceso.in_(nuevos))).all()
         existentes = {r.id_proceso for r in rs}
@@ -74,7 +72,6 @@ def reemplazar_sucesores(session: Session, id_proceso: int, nuevos_sucesores: It
         if exigir_mismo_diagrama and any(r.id_diagrama != po.id_diagrama for r in rs):
             raise ValueError("Todos los sucesores deben estar en el mismo diagrama")
 
-    # borrar los que ya no están
     session.exec(
         delete(ProcesoDependencia).where(
             ProcesoDependencia.id_origen == id_proceso,
@@ -82,13 +79,12 @@ def reemplazar_sucesores(session: Session, id_proceso: int, nuevos_sucesores: It
         )
     )
 
-    # insertar los faltantes
     for dest in nuevos:
         if not session.get(ProcesoDependencia, (id_proceso, dest)):
             session.add(ProcesoDependencia(id_origen=id_proceso, id_destino=dest))
 
     session.commit()
-    
+
 def reemplazar_predecesores(
     session: Session,
     id_proceso: int,
@@ -99,11 +95,9 @@ def reemplazar_predecesores(
     if not destino:
         raise ValueError("Proceso no encontrado")
 
-    # normaliza y quita self-loop
     nuevos = [int(x) for x in nuevos_predecesores if int(x) != id_proceso]
     nuevos_set = set(nuevos)
 
-    # valida existencia
     if nuevos_set:
         rs = session.exec(select(Proceso).where(Proceso.id_proceso.in_(nuevos_set))).all()
         existentes = {r.id_proceso for r in rs}
@@ -115,7 +109,7 @@ def reemplazar_predecesores(
             if any(r.id_diagrama != destino.id_diagrama for r in rs):
                 raise ValueError("Todos los predecesores deben estar en el mismo diagrama")
         else:
-            # misma familia de artículo: compara id_catalogo de sus diagramas
+
             dest_cat = session.exec(
                 select(DiagramaDeFlujo.id_catalogo).where(DiagramaDeFlujo.id_diagrama == destino.id_diagrama)
             ).one()
@@ -126,10 +120,8 @@ def reemplazar_predecesores(
             if any(c != dest_cat for c in pred_cats):
                 raise ValueError("Todos los predecesores deben pertenecer al mismo artículo")
 
-    # borra TODAS las aristas entrantes al proceso destino
     session.exec(delete(ProcesoDependencia).where(ProcesoDependencia.id_destino == id_proceso))
 
-    # inserta nuevas (origen = predecesor, destino = actual)
     for pid in nuevos_set:
         session.add(ProcesoDependencia(id_origen=pid, id_destino=id_proceso))
 

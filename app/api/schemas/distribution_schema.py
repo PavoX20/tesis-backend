@@ -11,7 +11,7 @@ class RankedItem(BaseModel):
 
 class AutoResponse(BaseModel):
     modo: str = "auto"
-    seleccion: Optional[str] = None          # ← antes str
+    seleccion: Optional[str] = None     
     parametros: List[float] = Field(default_factory=list)
     mensaje: str
     ranking: List[RankedItem] = Field(default_factory=list)

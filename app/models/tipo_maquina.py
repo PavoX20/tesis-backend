@@ -4,7 +4,8 @@ from sqlmodel import SQLModel, Field, Relationship
 if TYPE_CHECKING:
     from .area import Area
 
-class TipoMaquina(SQLModel, table=True): # <--- Nombre original
+class TipoMaquina(SQLModel, table=True): 
+
     __tablename__ = "tipos_maquinas"
 
     id_tipomaquina: Optional[int] = Field(default=None, primary_key=True)
@@ -13,5 +14,4 @@ class TipoMaquina(SQLModel, table=True): # <--- Nombre original
     personal_max: Optional[int] = Field(default=None, ge=0)
     id_area: Optional[int] = Field(default=None, foreign_key="areas.id_area")
 
-    # Relación usando el nombre singular
     area: Optional["Area"] = Relationship(back_populates="maquinas")

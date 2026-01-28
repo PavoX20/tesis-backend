@@ -13,14 +13,12 @@ from app.api.schemas import AutoResponse, ManualRequest, ManualResponse, RankedI
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
-
 def _get_tiempos_segundos(session: Session, proceso_id: int) -> List[float]:
     """
     Lee los tiempos de BD (columna tiempo_total_seg) y los convierte a float.
     """
     tiempos = crud_procesos.get_tiempos_proceso(session, proceso_id)
     return [float(x) for x in tiempos if x is not None]
-
 
 @router.get("/processes/{proceso_id}/distribution", response_model=AutoResponse)
 def distribution_auto(
@@ -37,7 +35,6 @@ def distribution_auto(
     if n == 0:
         raise HTTPException(404, "Proceso sin datos")
 
-    # Caso N < umbral → no intentamos ajustar, solo avisamos al front.
     if n < umbral:
         return AutoResponse(
             modo="manual",
@@ -48,7 +45,6 @@ def distribution_auto(
             image_base64=None,
         )
 
-    # Caso N >= umbral → usamos selección automática
     out = seleccionar_y_graficar(x, umbral=umbral)
     ax = out["ax"]
     img_b64 = b64encode(ax_to_png_bytes(ax)).decode("ascii")
@@ -75,7 +71,6 @@ def distribution_auto(
         image_base64=img_b64,
     )
 
-
 @router.post("/processes/{proceso_id}/distribution/manual", response_model=ManualResponse)
 def distribution_manual(
     proceso_id: int,
@@ -98,7 +93,7 @@ def distribution_manual(
             umbral=req.umbral,
         )
     except ValueError as e:
-        # errores de parámetros no válidos, distribución no soportada, etc.
+
         raise HTTPException(status_code=400, detail=str(e))
 
     ax = out["ax"]
@@ -110,7 +105,6 @@ def distribution_manual(
         mensaje=out["mensaje"],
         image_base64=img_b64,
     )
-
 
 @router.get("/distributions/{nombre}/params", response_model=List[str])
 def distribution_param_names(nombre: str):
