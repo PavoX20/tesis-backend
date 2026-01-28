@@ -1,69 +1,40 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
+
+# --- INPUTS (Solicitudes) ---
 
 class ProductoSolicitud(BaseModel):
     id_catalogo: int
     cantidad: int
 
 class SimulationRequest(BaseModel):
+    """
+    Estructura unificada para pedir simulaciones.
+    Soporta lista de productos por si en el futuro simulas varios a la vez.
+    """
     productos: List[ProductoSolicitud]
     asignacion_manual: Optional[Dict[str, int]] = None
     solo_info: bool = False
+    umbral_pausa: Optional[float] = 0.20
 
-class MaterialDetalle(BaseModel):
-    id_materia: int
-    nombre: Optional[str] = "Desconocido"
-    cantidad_total: float
-
-class DetalleAsignacion(BaseModel):
-    personal: int
-    maquinas: int
-    tiempo_base: float
-
-class EscenarioItem(BaseModel):
-    ranking: int
-    ranking_score: float
-    total_personal_usado: int
-    total_maquinas_usadas: int
-
-    detalle_asignacion: Dict[str, Any] 
-
-class ReporteArea(BaseModel):
-    id_area: int
-    nombre_area: str
-    escenarios: List[EscenarioItem]
-
-class SimulationResponse(BaseModel):
-    diagrama_id: int
-    tiempo_total: float
-    buffer_ideal: float
-    es_factible: bool
-    cuello_botella: int
-
-    lista_materiales_total: List[MaterialDetalle]
-    materiales_por_proceso: Dict[str, List[MaterialDetalle]]
-    analisis_escenarios: List[ReporteArea]
-
-    gantt_data: Dict[str, List[List[float]]]
-    detalles_procesos: Dict[str, Any]
-
-    class Config:
-
-        from_attributes = True
-
-class ProductoRequest(BaseModel):
-    id_catalogo: int
-    cantidad: int
-
-class VisualSimulationRequest(BaseModel):
-    id_catalogo: int
-    cantidad: int
+# --- OUTPUTS (Respuestas) ---
 
 class VisualSimulationResponse(BaseModel):
+    """
+    Respuesta optimizada para el Frontend de Angelo.
+    Contiene la metadata, los resultados de buffers, la película y la gráfica.
+    """
     modelo: str
     meta_cantidad: int
-    resumen: Dict[str, Any]      
-
-    timeline: List[Dict[str, Any]] 
-
+    
+    # Resumen rápido (Tiempo de cálculo, status)
+    resumen: Dict[str, Any]
+    
+    # Aquí vienen los Buffers Optimizados y tiempos por proceso
+    detalles_procesos: Dict[str, Any]
+    
+    # LA PELÍCULA: Lista de frames paso a paso para la animación
+    historial_animacion: List[Dict[str, Any]]
+    
+    # La imagen generada por matplotlib en Base64
     grafica_base64: Optional[str] = None
