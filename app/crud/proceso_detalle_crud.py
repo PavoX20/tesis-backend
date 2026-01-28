@@ -1,4 +1,3 @@
-# app/crud/proceso_detalle_crud.py
 from typing import List
 from sqlmodel import Session, select
 from app.models.catalogo import Catalogo
@@ -10,20 +9,17 @@ from app.models.materia_model import Materia
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
 def get_proceso_detalle(session: Session, id_proceso: int):
-    # Proceso
+
     proceso = session.get(Proceso, id_proceso)
     if not proceso:
         return None
 
-    # Diagrama y catálogo del proceso
     diagrama = session.get(Diagrama, proceso.id_diagrama) if proceso.id_diagrama else None
     catalogo = session.get(Catalogo, diagrama.id_catalogo) if diagrama and diagrama.id_catalogo else None
 
-    # Tipo de máquina y área
     tipo_maquina = session.get(TipoMaquina, proceso.id_tipomaquina) if proceso.id_tipomaquina else None
     area = session.get(Area, tipo_maquina.id_area) if (tipo_maquina and tipo_maquina.id_area) else None
 
-    # Receta: N entradas y N salidas
     filas = session.exec(
         select(Receta, Materia)
         .join(Materia, Materia.id_materia == Receta.id_materia)
@@ -60,10 +56,13 @@ def get_proceso_detalle(session: Session, id_proceso: int):
             "parametros": proceso.parametros,
             "duracion": proceso.duracion,
             "orden": proceso.orden,
-            "tipo": proceso.tipo,                       # <-- ya lo tenías
-            "id_diagrama": proceso.id_diagrama,         # <-- nuevo
+            "tipo": proceso.tipo,                       
+
+            "id_diagrama": proceso.id_diagrama,         
+
         },
-        "catalogo": (                                   # <-- nuevo bloque
+        "catalogo": (                                   
+
             {
                 "id_catalogo": catalogo.id_catalogo,
                 "nombre": catalogo.nombre,
@@ -88,7 +87,6 @@ def get_proceso_detalle(session: Session, id_proceso: int):
         ),
         "receta": {"entradas": entradas, "salidas": salidas},
     }
-
 
 def get_receta_by_proceso(session: Session, id_proceso: int) -> List[Receta]:
     return session.exec(select(Receta).where(Receta.id_proceso == id_proceso)).all()

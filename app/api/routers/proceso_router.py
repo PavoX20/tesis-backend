@@ -6,10 +6,8 @@ from app.models.catalogo import Catalogo
 from app.models.proceso_model import Proceso, ProcesoCreate, ProcesoRead, ProcesoTipoUpdate
 from app.models.diagrama_de_flujo import DiagramaDeFlujo
 
-
 router = APIRouter(prefix="/procesos", tags=["Procesos"])
 
-# Clase para usar en response_model de /lookup
 class ProcesoLookup(SQLModel):
     id_proceso: int
     nombre_proceso: str
@@ -18,9 +16,7 @@ class ProcesoLookup(SQLModel):
     tipo: str | None = None
     diagrama_nombre: str | None = None
     catalogo_id: int | None = None
-    catalogo_nombre: str | None = None  # <- seguirá opcional
-
-
+    catalogo_nombre: str | None = None  
 
 @router.get("/lookup", response_model=list[ProcesoLookup])
 def lookup_procesos(
@@ -44,16 +40,11 @@ def lookup_procesos(
         limit=limit,
     )
 
-
-
-
-# Crear un proceso dentro de un diagrama
 @router.post("/", response_model=ProcesoRead)
 def create_proceso(payload: ProcesoCreate, session: Session = Depends(get_session)):
-    # Convertimos DTO -> modelo de BD
+
     proc = Proceso.model_validate(payload)
 
-    # Si viene id_diagrama, aplicamos la lógica de orden dentro del diagrama
     if proc.id_diagrama is not None:
         diagrama = session.get(DiagramaDeFlujo, proc.id_diagrama)
         if not diagrama:
@@ -65,24 +56,20 @@ def create_proceso(payload: ProcesoCreate, session: Session = Depends(get_sessio
             .order_by(Proceso.orden)
         ).all()
 
-        # Si no se especifica orden o es mayor, lo ponemos al final
         if not proc.orden or proc.orden > len(procesos_existentes):
             proc.orden = len(procesos_existentes) + 1
         else:
-            # Desplazar procesos siguientes hacia abajo
+
             for p in procesos_existentes:
                 if p.orden is not None and p.orden >= proc.orden:
                     p.orden = p.orden + 1
                     session.add(p)
-    # Si NO hay id_diagrama, dejamos proc.orden como None (permitido)
 
     session.add(proc)
     session.commit()
     session.refresh(proc)
     return proc
 
-
-# Listar procesos de un diagrama
 @router.get("/{id_diagrama:int}")
 def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
     procesos = session.exec(
@@ -90,7 +77,7 @@ def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
     ).all()
 
     if not procesos:
-        # aún si no hay procesos, devolvemos el contexto de diagrama+catálogo (si existe)
+
         diag = session.get(DiagramaDeFlujo, id_diagrama)
         if not diag:
             raise HTTPException(status_code=404, detail="No se encontraron procesos para este diagrama")
@@ -101,7 +88,6 @@ def list_procesos(id_diagrama: int, session: Session = Depends(get_session)):
             "procesos": []
         }
 
-    # si hay procesos, resolvemos el catálogo a partir del diagrama
     diag = session.get(DiagramaDeFlujo, id_diagrama)
     cat = session.get(Catalogo, diag.id_catalogo) if diag and diag.id_catalogo else None
 
@@ -126,13 +112,14 @@ def delete_proceso_endpoint(
     deleted = proceso_crud.delete_proceso(session, id_proceso)
     if not deleted:
         raise HTTPException(status_code=404, detail="Proceso no encontrado")
-    # puedes devolver lo que quieras; el front no usa la respuesta
+
     return {"status": "ok", "id_eliminado": id_proceso}
 
 @router.patch("/{proceso_id:int}/maquina", response_model=Proceso)
 def asignar_maquina(
     proceso_id: int,
-    payload: dict = Body(..., example={"id_tipomaquina": 9}),  # null para desasignar
+    payload: dict = Body(..., example={"id_tipomaquina": 9}),  
+
     session: Session = Depends(get_session),
 ):
     id_tm = payload.get("id_tipomaquina", None)
@@ -147,7 +134,8 @@ def asignar_maquina(
 @router.patch("/{proceso_id:int}/tipo", response_model=Proceso)
 def cambiar_tipo_proceso(
     proceso_id: int,
-    payload: ProcesoTipoUpdate,  # {"tipo": "NORMAL" | "ALMACENAMIENTO"}
+    payload: ProcesoTipoUpdate,  
+
     session: Session = Depends(get_session),
 ):
     try:

@@ -7,9 +7,7 @@ from app.models.catalogo import Catalogo
 
 router = APIRouter(prefix="/grafo", tags=["Grafo"])
 
-# ---------------------------------------------------------
-# 1️⃣ Listar solo los diagramas principales (productos finales)
-# ---------------------------------------------------------
+
 @router.get("/productos-finales")
 def get_productos_finales(session: Session = Depends(get_session)):
     diagramas = session.exec(
@@ -34,9 +32,6 @@ def get_productos_finales(session: Session = Depends(get_session)):
     return {"productos_finales": data}
 
 
-# ---------------------------------------------------------
-# 2️⃣ Obtener el grafo completo de un diagrama por ID
-# ---------------------------------------------------------
 @router.get("/{id_diagrama}")
 def get_grafo(id_diagrama: int, session: Session = Depends(get_session)):
     result = get_grafo_by_diagrama(session, id_diagrama)

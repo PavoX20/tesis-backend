@@ -7,12 +7,11 @@ from app.models.tipo_maquina import TipoMaquina
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 from sqlalchemy.orm import aliased
 
-
 def get_proceso_by_id(session: Session, proceso_id: int):
     return session.get(Proceso, proceso_id)
 
 def create_proceso(session: Session, data: Proceso):
-    # Asignar orden automáticamente si no se envía
+
     if not data.orden and data.id_diagrama:
         max_orden = session.exec(
             select(Proceso.orden)
@@ -24,6 +23,32 @@ def create_proceso(session: Session, data: Proceso):
     session.add(data)
     session.commit()
     session.refresh(data)
+
+    try:
+
+        from app.models.procesos_dependencias import ProcesoDependencia
+
+        if data.id_diagrama and (data.orden or 0) > 1:
+            prev_proceso = session.exec(
+                select(Proceso)
+                .where(Proceso.id_diagrama == data.id_diagrama)
+                .where(Proceso.orden == (data.orden - 1))
+            ).first()
+
+            if prev_proceso:
+
+                existe = session.get(ProcesoDependencia, (prev_proceso.id_proceso, data.id_proceso))
+                if not existe:
+                    dep = ProcesoDependencia(
+                        id_origen=prev_proceso.id_proceso,
+                        id_destino=data.id_proceso
+                    )
+                    session.add(dep)
+                    session.commit()
+    except Exception as e:
+
+        print(f"ADVERTENCIA: El proceso se creó, pero falló la auto-conexión: {e}")
+
     return data
 
 def update_proceso(session: Session, proceso_id: int, data: Proceso):
@@ -37,19 +62,15 @@ def update_proceso(session: Session, proceso_id: int, data: Proceso):
     session.refresh(proceso)
     return proceso
 
-
-
 def delete_proceso(session: Session, proceso_id: int):
     proceso = session.get(Proceso, proceso_id)
     if not proceso:
         return None
 
-    # Guardar id_diagrama antes de eliminar
     id_diagrama = proceso.id_diagrama
     session.delete(proceso)
     session.commit()
 
-    # Reordenar los procesos del diagrama
     if id_diagrama:
         procesos = session.exec(
             select(Proceso)
@@ -86,7 +107,7 @@ def list_procesos_lookup(
     skip: int = 0,
     limit: int = 20,
 ) -> List[dict]:
-    # subconsulta: último catalogo en datos_proceso
+
     dp_catalogo_id_sq = (
         select(DatoProceso.id_catalogo)
         .where(DatoProceso.id_proceso == Proceso.id_proceso)
@@ -95,10 +116,11 @@ def list_procesos_lookup(
         .scalar_subquery()
     )
 
-    # alias de catálogo para cada fuente
-    CatDiag = aliased(Catalogo)   # catálogo del diagrama
-    CatDP = aliased(Catalogo)     # catálogo desde datos_proceso
-    CatProc = aliased(Catalogo)   # catálogo directo en proceso
+    CatDiag = aliased(Catalogo)   
+
+    CatDP = aliased(Catalogo)     
+
+    CatProc = aliased(Catalogo)   
 
     stmt = (
         select(
@@ -109,17 +131,14 @@ def list_procesos_lookup(
             Proceso.tipo,
             Diagrama.nombre.label("diagrama_nombre"),
 
-            # IDs de catálogo por cada origen
             Diagrama.id_catalogo.label("catalogo_id_diagrama"),
             dp_catalogo_id_sq.label("catalogo_id_dp"),
             Proceso.id_catalogo.label("catalogo_id_proc"),
 
-            # Nombres de catálogo por cada origen
             CatDiag.nombre.label("catalogo_nombre_diagrama"),
             CatDP.nombre.label("catalogo_nombre_dp"),
             CatProc.nombre.label("catalogo_nombre_proc"),
 
-            # Exposición final (prioridad: proceso -> diagrama -> datos_proceso)
             func.coalesce(
                 Proceso.id_catalogo,
                 Diagrama.id_catalogo,
@@ -166,11 +185,7 @@ def list_procesos_lookup(
     rows = session.exec(stmt).all()
     return [dict(r._mapping) for r in rows]
 
-
 def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> Optional[Proceso]:
-    """Actualiza únicamente el campo `tipo` de un proceso.
-    No modifica distribucion, id_tipomaquina ni ningún otro campo.
-    """
     proc = session.get(Proceso, proceso_id)
     if not proc:
         return None
@@ -184,5 +199,3 @@ def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> O
     session.commit()
     session.refresh(proc)
     return proc
-
-

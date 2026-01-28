@@ -22,7 +22,7 @@ def api_get_receta(id_proceso: int, session: Session = Depends(get_session)):
 @router.put("/proceso/{id_proceso}")
 def api_put_receta(id_proceso: int, body: RecetaProcesoIn, session: Session = Depends(get_session)):
     try:
-        # convertimos Pydantic -> dicts para evitar el error “object is not subscriptable”
+
         entradas = [x.model_dump() for x in body.entradas]
         salidas  = [x.model_dump() for x in body.salidas]
         return replace_receta(session, id_proceso, entradas, salidas)

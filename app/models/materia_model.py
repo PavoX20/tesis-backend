@@ -1,4 +1,3 @@
-# app/models/materia_model.py
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
@@ -8,4 +7,5 @@ class Materia(SQLModel, table=True):
     nombre: str
     unidad: str
     costo: float = 0.0
-    tipo: str  # 'materia_prima' | 'materia_procesada' | 'otro'
+    tipo: str  
+

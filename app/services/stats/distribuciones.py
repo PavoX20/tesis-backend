@@ -339,34 +339,9 @@ class Distribuciones:
                 ax.plot(xs, d.pdf(xs))
                 ax.set_xlabel("x"); ax.set_ylabel("PDF")
 
-        # Titulo SOLO con el nombre legible
+
         ax.set_title(_NOMBRE_LEGIBLE.get(nombre, nombre.upper()))
         ax.grid(True, alpha=0.25)
         return ax
 
 
-# ------------------ DEMO RAPIDA ------------------
-# 
-
-# if __name__ == "__main__":
-#     rng = np.random.default_rng(123)
-#     datos = rng.normal(10, 2, 300)
-
-#     rng = [2,2,2,2,22,3,3,3,3,3,3,5,5,5,5,5,5,2,2,2,2,22,1,3,3,3,3,3,3,5,5,5,5,5,5]
-#     d = Distribuciones(datos)
-
-#     x = d.evaluar_distribuciones()
-
-#     df = pd.DataFrame(x, columns=["TITULO","KS","P","R2","DISTR","PARAMETROS"])
-#     print(df)
-
-#     # mayores a 20
-#     d.graficar_histograma_y_ajuste()
-#     plt.show()
-
-#     d.graficar_histograma_y_ajuste("expon")
-#     plt.show()
-
-#     # menores a 20
-#     graficar_distribucion("norm", [10.0, 2.0])
-#     plt.show()

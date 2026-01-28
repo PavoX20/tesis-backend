@@ -1,7 +1,10 @@
-from typing import Optional
-from sqlmodel import SQLModel, Field
+from typing import Optional, List, TYPE_CHECKING
+from sqlmodel import SQLModel, Field, Relationship
 
-class Area(SQLModel, table=True):
+if TYPE_CHECKING:
+    from .tipo_maquina import TipoMaquina
+
+class Area(SQLModel, table=True): 
     __tablename__ = "areas"
 
     id_area: Optional[int] = Field(default=None, primary_key=True)
@@ -9,3 +12,6 @@ class Area(SQLModel, table=True):
     tipo: Optional[str] = Field(default=None)
     personal: Optional[int] = Field(default=None, ge=0)
     restriccion: Optional[str] = Field(default=None)
+
+   
+    maquinas: List["TipoMaquina"] = Relationship(back_populates="area")

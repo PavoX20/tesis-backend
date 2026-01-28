@@ -1,4 +1,3 @@
-# app/models/dato_proceso_model.py
 from __future__ import annotations
 
 from typing import Optional
@@ -6,19 +5,13 @@ from datetime import date
 
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, Text
-from sqlalchemy import Date as SADate  # solo para la columna; la anotación usa datetime.date
-
+from sqlalchemy import Date as SADate  
 
 class DatoProceso(SQLModel, table=True):
     __tablename__ = "datos_proceso"
 
     id_medicion: Optional[int] = Field(default=None, primary_key=True)
 
-    # ANTES:
-    # id_proceso: int = Field(foreign_key="public.procesos.id_proceso")
-    # id_catalogo: int = Field(foreign_key="public.catalogo.id_catalogo")
-
-    # AHORA (sin schema "public."):
     id_proceso: int = Field(foreign_key="procesos.id_proceso")
     id_catalogo: int = Field(foreign_key="catalogo.id_catalogo")
 
@@ -29,19 +22,16 @@ class DatoProceso(SQLModel, table=True):
     operario: Optional[str] = Field(default=None)
     notas: Optional[str] = Field(default=None)
 
-
-# DTOs / esquemas
 class DatoProcesoCreate(SQLModel):
     id_proceso: int
     id_catalogo: int
     cantidad: Optional[float] = None
     fecha: date
-    # deben ser string porque las columnas son TEXT
+
     tiempo_total_min: Optional[str] = None
     tiempo_total_seg: Optional[str] = None
     operario: Optional[str] = None
     notas: Optional[str] = None
-
 
 class DatoProcesoRead(SQLModel):
     id_medicion: int
@@ -53,7 +43,6 @@ class DatoProcesoRead(SQLModel):
     tiempo_total_seg: Optional[str] = None
     operario: Optional[str] = None
     notas: Optional[str] = None
-
 
 class DatoProcesoUpdate(SQLModel):
     id_proceso: Optional[int] = None

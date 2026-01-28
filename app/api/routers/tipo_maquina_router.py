@@ -32,7 +32,7 @@ def crear_tipo_maquina(data: TipoMaquina, session: Session = Depends(get_session
 @router.put("/{tm_id}", response_model=TipoMaquina)
 def actualizar_tipo_maquina(tm_id: int, payload: dict = Body(...), session: Session = Depends(get_session)):
     obj = session.get(TipoMaquina, tm_id) or HTTPException(404, "No encontrado")
-    # solo actualiza claves presentes
+
     for k in ("nombre_maquina","cantidad_maquinas","personal_max","id_area"):
         if k in payload:
             if k == "id_area" and payload[k] is not None and session.get(Area, payload[k]) is None:
@@ -47,4 +47,5 @@ def eliminar_tipo_maquina(tm_id: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Tipo de máquina no encontrado")
     session.delete(obj)
     session.commit()
-    return  # 204 No Content
+    return  
+
