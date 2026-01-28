@@ -12,7 +12,7 @@ def get_proceso_by_id(session: Session, proceso_id: int):
     return session.get(Proceso, proceso_id)
 
 def create_proceso(session: Session, data: Proceso):
-    # Asignar orden automáticamente si no se envía
+    # 1. Asignar orden automáticamente si no se envía (Lógica Original)
     if not data.orden and data.id_diagrama:
         max_orden = session.exec(
             select(Proceso.orden)
@@ -21,9 +21,38 @@ def create_proceso(session: Session, data: Proceso):
         ).first()
         data.orden = (max_orden or 0) + 1
 
+    # 2. Guardar el proceso (Lógica Original)
     session.add(data)
     session.commit()
     session.refresh(data)
+
+    # 3. Auto-conexión Segura (Opción B mejorada)
+    # Usamos un try-except para que NUNCA afecte a la creación del proceso si algo falla aquí.
+    try:
+        # Importación local para evitar errores de "Circular Import" si tus modelos se llaman entre sí
+        from app.models.procesos_dependencias import ProcesoDependencia
+
+        if data.id_diagrama and (data.orden or 0) > 1:
+            prev_proceso = session.exec(
+                select(Proceso)
+                .where(Proceso.id_diagrama == data.id_diagrama)
+                .where(Proceso.orden == (data.orden - 1))
+            ).first()
+
+            if prev_proceso:
+                # Verificamos que no exista ya la conexión para evitar errores de duplicados
+                existe = session.get(ProcesoDependencia, (prev_proceso.id_proceso, data.id_proceso))
+                if not existe:
+                    dep = ProcesoDependencia(
+                        id_origen=prev_proceso.id_proceso,
+                        id_destino=data.id_proceso
+                    )
+                    session.add(dep)
+                    session.commit()
+    except Exception as e:
+        # Si falla la auto-conexión, solo lo imprimimos en consola, pero el proceso YA SE CREÓ.
+        print(f"ADVERTENCIA: El proceso se creó, pero falló la auto-conexión: {e}")
+
     return data
 
 def update_proceso(session: Session, proceso_id: int, data: Proceso):
@@ -36,8 +65,6 @@ def update_proceso(session: Session, proceso_id: int, data: Proceso):
     session.commit()
     session.refresh(proceso)
     return proceso
-
-
 
 def delete_proceso(session: Session, proceso_id: int):
     proceso = session.get(Proceso, proceso_id)
@@ -168,9 +195,6 @@ def list_procesos_lookup(
 
 
 def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> Optional[Proceso]:
-    """Actualiza únicamente el campo `tipo` de un proceso.
-    No modifica distribucion, id_tipomaquina ni ningún otro campo.
-    """
     proc = session.get(Proceso, proceso_id)
     if not proc:
         return None
@@ -184,5 +208,3 @@ def set_tipo_en_proceso(session: Session, proceso_id: int, nuevo_tipo: str) -> O
     session.commit()
     session.refresh(proc)
     return proc
-
-

@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import ast
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from fastapi import HTTPException
@@ -50,7 +51,6 @@ def run_simulation(db: Session, request: SimulationRequest):
     
     produccion = pd.DataFrame(prod_data)
     if catalogo.empty: raise HTTPException(status_code=404, detail="Catalogo vacío.")
-    
     produccion = produccion.merge(catalogo[['ID_PRODUCTO', 'ID_DIAGRAMA']], on='ID_PRODUCTO', how='left')
     
     resultados_simulacion = []
@@ -62,7 +62,7 @@ def run_simulation(db: Session, request: SimulationRequest):
             id_diagrama_principal = safe_int(row['ID_DIAGRAMA']) 
             cantidad_pedido = row['Cantidad']
 
-            # --- RASTREO (Igual que antes) ---
+            # --- RASTREO ---
             ids_diagramas_relacionados = set()
             if id_diagrama_principal > 0: ids_diagramas_relacionados.add(id_diagrama_principal)
             
@@ -136,48 +136,27 @@ def run_simulation(db: Session, request: SimulationRequest):
             df_diag_d['CANTIDAD MAQUINAS'] = df_diag_d['CANTIDAD MAQUINAS'].fillna(1).astype(int)
             df_diag_d['PERSONAL MAX'] = df_diag_d['PERSONAL MAX'].fillna(100).astype(int)
 
-            # --- [MODO PREVIEW: SOLO INFO] ---
             if request.solo_info:
-                # Si solo piden info, construimos la estructura base sin calcular nada
                 detalles_preview = {}
-                # Obtenemos todos los procesos únicos del diagrama completo
                 unique_procs = df_diag_d.drop_duplicates(subset=['ID_PROCESO'])
-                
                 for _, row_p in unique_procs.iterrows():
                     pid = safe_int(row_p['ID_PROCESO'])
                     nombre = nombres_procesos_map.get(pid, f"Proceso {pid}")
                     area_id = safe_int(row_p['ID_AREA'])
                     p_max = int(row_p['PERSONAL MAX'])
-                    
                     detalles_preview[str(pid)] = {
-                        "t": 0,
-                        "pers": 0, # Cero para indicar "sin calcular"
-                        "maq": 0,
-                        "area": f"Area {area_id}",
-                        "nombre_proceso": nombre,
-                        "max_pers": p_max
+                        "t": 0, "pers": 0, "maq": 0,
+                        "area": f"Area {area_id}", "nombre_proceso": nombre, "max_pers": p_max
                     }
-                
-                # Devolvemos resultado "vacío" pero con la estructura de procesos
                 resultados_simulacion.append({
                     "diagrama_id": int(id_diagrama_principal),
-                    "tiempo_total": 0,
-                    "buffer_ideal": 0,
-                    "es_factible": True,
-                    
-                    # [FIX] Agregamos campos requeridos por el Schema aunque estén vacíos
-                    "cuello_botella": 0, 
-                    "materiales_por_proceso": {}, 
-                    
-                    "lista_materiales_total": [],
-                    "analisis_escenarios": [],
-                    "gantt_data": {},
-                    "detalles_procesos": detalles_preview 
+                    "tiempo_total": 0, "buffer_ideal": 0, "es_factible": True,
+                    "cuello_botella": 0, "materiales_por_proceso": {}, 
+                    "lista_materiales_total": [], "analisis_escenarios": [],
+                    "gantt_data": {}, "detalles_procesos": detalles_preview 
                 })
-                continue # Saltamos al siguiente producto
-            # ---------------------------------
+                continue 
 
-            # ... (Resto del código de simulación completa IGUAL que antes) ...
             ids_procesos = df_diag_d['ID_PROCESO'].unique()
 
             # --- D. RECETAS ---
@@ -197,7 +176,15 @@ def run_simulation(db: Session, request: SimulationRequest):
             df_rec_d['ID_PRODUCTO'] = df_rec_d['ID_MATERIA'] 
             df_rec_d['TIPO_PRODUCTO'] = np.where(df_rec_d['ROL'] == 'OUT', 'producto', 'materia')
             df_rec_d['ID_DIAGRAMA'] = str(id_diagrama_principal)
+
+            # [AQUÍ ESTÁ LA MAGIA PARA PASAR DE 130H A 1.3H]
+            # 1. Calculamos cantidad base (esto daba 10,000)
             df_rec_d['CANTIDAD PRODUCION'] = df_rec_d['CANTIDAD UNITARIA'] * cantidad_pedido
+            
+            # 2. Corregimos: Forzamos que la salida sea EXACTAMENTE lo que pediste (100)
+            # Y para asegurarnos, lo aplicamos tanto a lo que dice 'OUT' como al producto principal por ID
+            mask_producto = (df_rec_d['ROL'] == 'OUT') | (df_rec_d['ID_MATERIA'] == id_producto)
+            df_rec_d.loc[mask_producto, 'CANTIDAD PRODUCION'] = cantidad_pedido
 
             # --- E. CÁLCULO ---
             calc_rows_final = [] 
@@ -228,12 +215,24 @@ def run_simulation(db: Session, request: SimulationRequest):
 
                 tiempos_ref = []
                 for _, row_p in diag_area_uniq.iterrows():
-                    params = engine.ensure_list_params(row_p.get('PARAMETROS', []))
-                    dist = row_p.get('DISTRIBUCION', 'fixed')
-                    t_val = float(engine.Distribuciones.generar_valor_deterministico(dist, params))
+                    # --- LECTURA DE TIEMPOS (Correcta gracias al Data Loader) ---
+                    t_val = float(row_p.get('DURACION') or 0.0)
+
+                    if t_val <= 0:
+                        try:
+                            raw_params = row_p.get('PARAMETROS')
+                            if raw_params:
+                                params_list = ast.literal_eval(str(raw_params))
+                                if isinstance(params_list, list) and len(params_list) > 0:
+                                    t_val = float(params_list[0]) 
+                        except Exception as e:
+                            print(f"Error leyendo params: {e}")
+
+                    if t_val <= 0.1: t_val = 5.0 
+
                     tiempos_ref.append({
                         'ID_PROCESO': safe_int(row_p['ID_PROCESO']),
-                        'T': t_val if t_val > 0 else 1.0
+                        'T': t_val
                     })
                 df_tiempos = pd.DataFrame(tiempos_ref)
                 

@@ -2,8 +2,6 @@ import random
 from collections import deque, defaultdict
 import io
 import base64
-
-# --- CONFIGURACIÓN MATPLOTLIB (Para Servidor) ---
 import matplotlib
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
@@ -53,6 +51,8 @@ class MotorSimulacionVisual:
              self.nodos_iniciales.append(min(self.procesos.keys()))
 
     def _generar_tiempo(self, tiempo_base, variabilidad):
+        # Usamos el tiempo base real de la BD.
+        # Usamos la variabilidad real (desviación) extraída de los parámetros.
         t = random.normalvariate(tiempo_base, variabilidad)
         return max(0.1, t)
 
@@ -61,7 +61,6 @@ class MotorSimulacionVisual:
         tiempo_maximo_seguridad = 50000 
         eventos_futuros = [] 
 
-        # --- BUCLE PRINCIPAL ---
         while self.produccion_terminada < self.total_zapatos and self.reloj < tiempo_maximo_seguridad:
             
             # 1. ALIMENTAR
@@ -78,7 +77,7 @@ class MotorSimulacionVisual:
                     else:
                         break
 
-            # 2. SNAPSHOT (FOTO DEL MOMENTO)
+            # 2. SNAPSHOT
             snapshot = self._crear_snapshot()
             self.timeline.append(snapshot)
 
@@ -98,10 +97,21 @@ class MotorSimulacionVisual:
                         for sig_pid in siguientes:
                             self.colas[sig_pid].append({'id_zapato': zapato_id})
                     else:
-                        self.produccion_terminada += 1  
+                        # --- CORRECCIÓN AQUÍ: Freno de mano para no pasar de 100 ---
+                        if self.produccion_terminada < self.total_zapatos:
+                            self.produccion_terminada += 1
+                        
+                        # Si ya llegamos, rompemos el for para no procesar más salidas fantasma
+                        if self.produccion_terminada >= self.total_zapatos:
+                            break  
                 else:
                     nuevos_eventos.append(evento)
+            
             eventos_futuros = nuevos_eventos
+
+            # --- CORRECCIÓN EXTRA: Romper el while principal inmediatamente ---
+            if self.produccion_terminada >= self.total_zapatos:
+                break
 
             # 4. ASIGNAR MÁQUINAS
             for pid in self.procesos:
@@ -118,12 +128,10 @@ class MotorSimulacionVisual:
 
             self.reloj += 0.5 
 
-        # --- CORRECCIÓN 99 vs 100 ---
-        # Tomamos una ÚLTIMA foto manual para registrar el 100 final
+        # Foto final del 100
         snapshot_final = self._crear_snapshot()
         self.timeline.append(snapshot_final)
 
-        # Generar Gráfica
         grafica_base64 = self._generar_grafica_imagen()
 
         return {
@@ -134,8 +142,9 @@ class MotorSimulacionVisual:
         }
 
     def _crear_snapshot(self):
-        """Genera el estado actual de la simulación para el frame"""
         tabla_procesos = []
+        
+        # --- DICCIONARIOS REALES ---
         recursos_bodega = defaultdict(int)
         recursos_maquinaria = defaultdict(int)
         personal_area = defaultdict(lambda: {"total": 0, "ocupado": 0})
@@ -145,7 +154,7 @@ class MotorSimulacionVisual:
             has_queue = len(self.colas[pid]) > 0
             is_active = self.procesos_activos[pid]
 
-            # Acumular tiempos
+            # Stats
             if is_active:
                 if is_working:
                     self.stats[pid]['real_activo'] += 0.5
@@ -172,25 +181,35 @@ class MotorSimulacionVisual:
                 "tiempo_pausado": round(self.stats[pid]['real_pausado'], 1)
             })
 
-            # --- CORRECCIÓN DE TEXTOS PARA EL CLIENTE ---
-            area_dummy = f"Area {(pid % 3) + 1}"
-            
-            # Cambiamos "Materia" por "En Proceso" para ser honestos con el cliente
-            recursos_bodega[(area_dummy, "En Proceso (WIP)")] += len(self.colas[pid])
-            
-            # Cambiamos "Maq. Std" por "Maquinaria"
-            recursos_maquinaria[(area_dummy, "Maquinaria")] += 1
-            
-            personal_area[area_dummy]["total"] += 2
-            if is_working: personal_area[area_dummy]["ocupado"] += 1
+            # --- USO DE DATOS REALES DE LA BD ---
+            nombre_area = info['nombre_area_real']
+            nombre_maquina = info['nombre_maquina_real']
+            personal_max_real = info.get('personal_max_real', 1) # Dato real del TipoMaquina
 
+            # 1. Agrupación por Área para WIP
+            recursos_bodega[(nombre_area, "En Proceso (WIP)")] += len(self.colas[pid])
+            
+            # 2. Agrupación por Área para Maquinaria
+            recursos_maquinaria[(nombre_area, nombre_maquina)] += 1
+            
+            # 3. Personal por Área Real (CORREGIDO: No más hardcodeo de +2)
+            personal_area[nombre_area]["total"] += personal_max_real
+            if is_working: 
+                personal_area[nombre_area]["ocupado"] += 1
+
+        # Formateo para Frontend
         tabla_bodega = [{"area": k[0], "recurso": k[1], "cantidad": v} for k, v in recursos_bodega.items()]
         tabla_maquinaria = [{"area": k[0], "recurso": k[1], "cantidad": v} for k, v in recursos_maquinaria.items()]
         tabla_personal = [{"area": k, "personal_total": v["total"], "personal_ocupado": v["ocupado"]} for k, v in personal_area.items()]
+        
+        # Ordenamos las tablas
+        tabla_bodega.sort(key=lambda x: x['area'])
+        tabla_maquinaria.sort(key=lambda x: x['area'])
+        tabla_personal.sort(key=lambda x: x['area'])
 
         return {
             "tiempo": round(self.reloj, 2),
-            "buffer_stock": self.produccion_terminada, # Aquí mostrará 100 al final
+            "buffer_stock": self.produccion_terminada,
             "cuello_botella": self._detectar_cuello(),
             "nodos": {str(pid): {"cola": len(self.colas[pid]), "ocupado": self.estado_maquinas[pid]==1, "nombre": self.procesos[pid]['nombre']} for pid in self.procesos},
             "tabla_procesos": sorted(tabla_procesos, key=lambda x: x['id_proceso']),
