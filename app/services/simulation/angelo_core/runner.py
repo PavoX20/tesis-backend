@@ -32,9 +32,11 @@ def spy_meta_avanzar(app, id_proceso, parada=0):
     info = app.tree_procesos["data"].get(id_proceso)
     if not info: return False
     
+    # --- CANDADO: Si ya terminamos, ignoramos cualquier evento extra ---
     if info.get("_finalizado_hard", False):
         return True
 
+    # 1. Incrementar
     actual = info.get("_contador_produccion", 0) + 1
     
     # Asegurar meta entera
@@ -43,6 +45,7 @@ def spy_meta_avanzar(app, id_proceso, parada=0):
     except:
         meta_total = 100
     
+    # 2. Verificar si nos pasamos
     if actual > meta_total:
         actual = meta_total 
     
@@ -50,10 +53,11 @@ def spy_meta_avanzar(app, id_proceso, parada=0):
     info["META"] = f"{int(actual)}/{int(meta_total)}"
     info["CANTIDAD"] = actual 
     
+    # 3. ACTIVAR CANDADO SI LLEGAMOS A LA META
     if actual >= meta_total:
-        info["_finalizado_hard"] = True
-        info["ESTADO"] = "FINALIZADO"
-        info["ACTIVO"] = False
+        info["_finalizado_hard"] = True  
+        info["ESTADO"] = "FINALIZADO"    
+        info["ACTIVO"] = False           
         return True 
     
     return False
@@ -189,7 +193,7 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
         intento = 1
         
         while intento <= MAX_INTENTOS:
-            print(f"--- Iteración {intento} (Names Sync Fix) ---")
+            print(f"--- Iteración {intento} (Nombres + Auto Stop) ---")
             app = VirtualApp(df_datos.copy(), df_areas, df_maquinaria, df_bodega)
             
             ids_procesos = list(app.tree_procesos["data"].keys())
@@ -214,11 +218,20 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                 app.root.process_pending_events()
                 
                 all_inactive = True
+                todos_terminaron = True # Bandera para corte de tiempo
+                
                 for pid in ids_procesos:
                     info = app.tree_procesos["data"][pid]
                     est = info.get("ESTADO", "ESPERANDO")
                     
-                    if str(est).startswith("ACTIVO") or "TRABAJANDO" in str(est):
+                    # Chequear si este proceso ya acabó definitivamente
+                    if not info.get("_finalizado_hard", False):
+                        todos_terminaron = False
+
+                    # Si terminó, NO sumar tiempo (Congelar cronómetro visual)
+                    if info.get("_finalizado_hard", False) or est in ["Finalizado", "FINALIZADO"]:
+                         pass 
+                    elif str(est).startswith("ACTIVO") or "TRABAJANDO" in str(est):
                         info["_sec_activo"] += dt_sim
                     else:
                         info["_sec_pausado"] += dt_sim
@@ -233,22 +246,21 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                     snap = {"timestamp": sim_time, "procesos": {}}
                     for pid in ids_procesos:
                         inf = app.tree_procesos["data"][pid]
-                        
-                        # === CORRECCIÓN AQUÍ: USAR NOMBRE COMO LLAVE EN EL SNAPSHOT ===
-                        # Esto permite que el Frontend haga match: currentFrameProcesses["Corte"]
+                        # --- CAMBIO 1: Nombre en lugar de ID para el Frontend ---
                         nombre_clave = inf.get("NOMBRE", str(pid))
-                        
                         snap["procesos"][nombre_clave] = {
                             "estado": inf.get("ESTADO"),
                             "buffer_actual": inf.get("CANTIDAD", 0),
                             "producido": inf.get("META", "0/0"),
-                            "nombre": nombre_clave # Nombre dentro del objeto
+                            "nombre": nombre_clave 
                         }
-                        # ==============================================================
-                        
                     historial.append(snap)
                     last_snapshot = sim_time
                 
+                # --- CAMBIO 2: Corte Inmediato si todos terminaron ---
+                if todos_terminaron:
+                    break
+
                 if all_inactive and not app.root.events:
                     break
 
@@ -263,19 +275,17 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                 if ("S/M" in est or ratio > umbral_pausa) and est != "FINALIZADO":
                     a_optimizar.append(pid)
                 
-                # === USAR NOMBRE COMO LLAVE AQUÍ TAMBIÉN ===
-                nombre_display = info.get("NOMBRE", f"Proceso {pid}")
-                
-                if nombre_display in detalles:
-                    nombre_display = f"{nombre_display} ({pid})" # Evitar duplicados
+                # --- CAMBIO 1 (Parte 2): Nombre en la tabla final también ---
+                nombre_clave = info.get("NOMBRE", f"Proceso {pid}")
+                if nombre_clave in detalles:
+                    nombre_clave = f"{nombre_clave} ({pid})"
 
-                detalles[nombre_display] = {
+                detalles[nombre_clave] = {
                     "buffer_recomendado": info.get("CANTIDAD", 0),
                     "estado_final": est,
                     "t_activo": info["T.ACTIVO"],
-                    "nombre": nombre_display 
+                    "nombre": info.get("NOMBRE", str(pid))
                 }
-                # ===========================================
                 
             mejor_resultado = {
                 "iteracion": intento,
