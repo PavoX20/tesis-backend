@@ -3,9 +3,9 @@ import time
 import ast
 import heapq
 import itertools
-from . import funciones, parametros # Importamos para infiltrarnos
+from . import funciones, parametros
 
-# --- 1. CLASE DEL MOTOR DE EVENTOS (El corazón del tiempo) ---
+# --- 1. MOTOR DE EVENTOS ---
 class MockRoot:
     def __init__(self):
         self.events = [] 
@@ -16,47 +16,51 @@ class MockRoot:
         self.current_sim_time = t
 
     def after(self, ms, func=None, *args):
-        # Convertir ms a segundos y agendar
         trigger_time = self.current_sim_time + (ms / 1000.0)
         count = next(self.counter)
         heapq.heappush(self.events, (trigger_time, count, func, args))
 
     def process_pending_events(self):
-        # Ejecutar eventos pasados
         while self.events and self.events[0][0] <= self.current_sim_time:
             evt_time, _, func, args = heapq.heappop(self.events)
             if func:
                 try: func(*args)
                 except Exception: pass
 
-# --- 2. EL ÁRBITRO INFILTRADO (Contador de Producción) ---
+# --- 2. ÁRBITRO CON CANDADO DE SEGURIDAD (HARD LOCK) 🔒 ---
 def spy_meta_avanzar(app, id_proceso, parada=0):
-    """
-    Esta función reemplaza a la original. Cuenta cada producción
-    y actualiza el texto para que el Frontend lo vea.
-    """
-    # Buscamos el proceso en la memoria de la app virtual
     info = app.tree_procesos["data"].get(id_proceso)
     if not info: return False
     
-    # 1. Incrementar contador interno
+    if info.get("_finalizado_hard", False):
+        return True
+
     actual = info.get("_contador_produccion", 0) + 1
+    
+    # Asegurar meta entera
+    try:
+        meta_total = int(info.get("_meta_total", 100))
+    except:
+        meta_total = 100
+    
+    if actual > meta_total:
+        actual = meta_total 
+    
     info["_contador_produccion"] = actual
-    
-    # 2. Actualizar el texto que ve el usuario (Ej: "5/100")
-    meta_total = info.get("_meta_total", 100)
-    info["META"] = f"{int(actual)}/{int(meta_total)}" # <--- ESTO ARREGLA EL 0
-    
-    # 3. Guardar buffer actual (cantidad en stock local del proceso)
-    # En esta simulación simplificada, asumimos que el buffer es lo producido
+    info["META"] = f"{int(actual)}/{int(meta_total)}"
     info["CANTIDAD"] = actual 
     
-    return actual >= meta_total
+    if actual >= meta_total:
+        info["_finalizado_hard"] = True
+        info["ESTADO"] = "FINALIZADO"
+        info["ACTIVO"] = False
+        return True 
+    
+    return False
 
 class VirtualApp:
     def __init__(self, df_datos, df_areas, df_maquinaria, df_bodega):
-        # Inicializamos columnas extra para el tracking
-        cols = df_datos.columns.tolist() + ["T.ACTIVO", "T.PAUSADO", "META", "_contador_produccion"]
+        cols = df_datos.columns.tolist() + ["T.ACTIVO", "T.PAUSADO", "META", "_contador_produccion", "_finalizado_hard"]
         self.tree_procesos = {"data": {}, "columns": cols}
         self.tree_bodega = {"data": {}, "columns": ["AREA", "MATERIA", "CANTIDAD"]}
         self.tree_maquinaria = {"data": {}, "columns": ["AREA", "MAQUINARIA", "CANTIDAD"]}
@@ -69,22 +73,25 @@ class VirtualApp:
         self.df_maquinaria = df_maquinaria
         self.df_bodega = df_bodega
         
+        # FACTOR DE VELOCIDAD
         self.SPEED_FACTOR = 300.0 
         
-        # Carga de Procesos
         for _, row in df_datos.iterrows():
             pid = row["ID_PROCESO"]
             row_dict = row.to_dict()
             row_dict["AREA"] = 0 
             
-            # Guardamos la meta original para usarla en el contador
-            meta_orig = row.get("META", 100)
+            try:
+                meta_orig = int(row.get("META", 100))
+            except:
+                meta_orig = 100
+            
             row_dict["_meta_total"] = meta_orig
             row_dict["_contador_produccion"] = 0
-            row_dict["META"] = f"0/{meta_orig}" # Inicializar visualización
+            row_dict["_finalizado_hard"] = False 
+            row_dict["META"] = f"0/{meta_orig}"
             
-            # --- FIX LISTAS ---
-            # Consumo
+            # Fix Listas Consumo
             m_str = str(row.get("MATERIA", ""))
             if m_str and m_str.lower() != "nan":
                 row_dict["MATERIA"] = [x.strip().upper() for x in m_str.split(",") if x.strip()]
@@ -93,7 +100,7 @@ class VirtualApp:
                 row_dict["MATERIA"] = []
                 row_dict["CANTIDAD_CONSUMO"] = []
 
-            # Producción
+            # Fix Listas Producción
             p_str = str(row.get("PRODUCE", ""))
             if p_str and p_str.lower() != "nan":
                 row_dict["PRODUCE"] = [x.strip().upper() for x in p_str.split(",") if x.strip()]
@@ -102,7 +109,7 @@ class VirtualApp:
                 row_dict["PRODUCE"] = []
                 row_dict["CANTIDAD_PRODUCE"] = []
 
-            # Params & Speed Hack
+            # Params
             try:
                 raw_p = ast.literal_eval(str(row.get("PARAMETROS", "[10, 1]")))
                 row_dict["PARAMETROS"] = [float(x)/self.SPEED_FACTOR for x in raw_p]
@@ -119,13 +126,11 @@ class VirtualApp:
             })
             self.tree_procesos["data"][pid] = row_dict
 
-        # Carga Bodega (Area 0)
         if not df_bodega.empty:
             for _, row in df_bodega.iterrows():
                 key = f"0_{str(row['MATERIA']).strip()}"
                 self.tree_bodega["data"][key] = row.to_dict()
         
-        # Carga Maquinaria (Area 0)
         if not df_maquinaria.empty:
             for _, row in df_maquinaria.iterrows():
                 key = f"0_{str(row['MAQUINARIA']).strip()}"
@@ -139,11 +144,8 @@ def _fmt_time(s):
     return f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
 
 def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbral_pausa: float = 0.20):
-    # --- 💉 INYECCIÓN DE CÓDIGO (MONKEY PATCH) ---
-    # Guardamos la función original por si acaso (buena práctica)
     original_meta = funciones.meta_avanzar
-    # Reemplazamos la función del motor con nuestro Árbitro
-    funciones.meta_avanzar = spy_meta_avanzar
+    funciones.meta_avanzar = spy_meta_avanzar 
     
     try:
         df_datos["META"] = cantidad_meta
@@ -170,7 +172,6 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
 
         bodega_rows = []
         for m in todos:
-            # Stock inicial 0 para WIP, infinito para MP
             cant = 0 if m in producidos else 999999
             bodega_rows.append({"AREA": 0, "MATERIA": m, "CANTIDAD": cant})
         df_bodega = pd.DataFrame(bodega_rows)
@@ -188,10 +189,9 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
         intento = 1
         
         while intento <= MAX_INTENTOS:
-            print(f"--- Iteración {intento} (Con Contador Infiltrado) ---")
+            print(f"--- Iteración {intento} (Names Sync Fix) ---")
             app = VirtualApp(df_datos.copy(), df_areas, df_maquinaria, df_bodega)
             
-            # Arrancar procesos
             ids_procesos = list(app.tree_procesos["data"].keys())
             for pid in ids_procesos:
                 try: funciones.simular_proceso(app, pid, "simulacion", app.df_bodega, app.df_areas, app.df_maquinaria, app.datos, pd.DataFrame())
@@ -210,11 +210,9 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                 dt_sim = dt_real * DISPLAY_MULTIPLIER
                 sim_time += dt_sim
                 
-                # MOTOR DE EVENTOS
                 app.root.set_time(sim_time)
                 app.root.process_pending_events()
                 
-                # Actualizar Visuales
                 all_inactive = True
                 for pid in ids_procesos:
                     info = app.tree_procesos["data"][pid]
@@ -231,18 +229,23 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                     if est not in ["Finalizado", "FINALIZADO", "INACTIVO", "BLOQUEADO"]:
                         all_inactive = False
 
-                # Snapshot
                 if (sim_time - last_snapshot) >= SNAPSHOT_INTERVAL:
                     snap = {"timestamp": sim_time, "procesos": {}}
                     for pid in ids_procesos:
                         inf = app.tree_procesos["data"][pid]
-                        # AQUÍ ENVIAMOS EL DATO CORRECTO AL FRONT
-                        snap["procesos"][str(pid)] = {
+                        
+                        # === CORRECCIÓN AQUÍ: USAR NOMBRE COMO LLAVE EN EL SNAPSHOT ===
+                        # Esto permite que el Frontend haga match: currentFrameProcesses["Corte"]
+                        nombre_clave = inf.get("NOMBRE", str(pid))
+                        
+                        snap["procesos"][nombre_clave] = {
                             "estado": inf.get("ESTADO"),
                             "buffer_actual": inf.get("CANTIDAD", 0),
-                            "producido": inf.get("META", "0/0"), # <--- ESTE ES EL CAMPO CLAVE
-                            "nombre": inf.get("NOMBRE")
+                            "producido": inf.get("META", "0/0"),
+                            "nombre": nombre_clave # Nombre dentro del objeto
                         }
+                        # ==============================================================
+                        
                     historial.append(snap)
                     last_snapshot = sim_time
                 
@@ -259,13 +262,20 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
                 
                 if ("S/M" in est or ratio > umbral_pausa) and est != "FINALIZADO":
                     a_optimizar.append(pid)
-                    
-                detalles[str(pid)] = {
+                
+                # === USAR NOMBRE COMO LLAVE AQUÍ TAMBIÉN ===
+                nombre_display = info.get("NOMBRE", f"Proceso {pid}")
+                
+                if nombre_display in detalles:
+                    nombre_display = f"{nombre_display} ({pid})" # Evitar duplicados
+
+                detalles[nombre_display] = {
                     "buffer_recomendado": info.get("CANTIDAD", 0),
                     "estado_final": est,
                     "t_activo": info["T.ACTIVO"],
-                    "nombre": info["NOMBRE"]
+                    "nombre": nombre_display 
                 }
+                # ===========================================
                 
             mejor_resultado = {
                 "iteracion": intento,
@@ -290,8 +300,6 @@ def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbra
             intento += 1
 
     finally:
-        # IMPORTANTE: Restaurar la función original al terminar
-        # para no romper nada si se usa el módulo desde otro lado
         funciones.meta_avanzar = original_meta
 
     return mejor_resultado
