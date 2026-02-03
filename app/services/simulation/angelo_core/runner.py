@@ -1,315 +1,224 @@
-import pandas as pd
-import time
-import ast
+import sys
+import os
 import heapq
 import itertools
-from . import funciones, parametros
+import pandas as pd
+import warnings
+import math
+import base64
+import matplotlib
+matplotlib.use('Agg')
 
-# --- 1. MOTOR DE EVENTOS ---
-class MockRoot:
-    def __init__(self):
-        self.events = [] 
-        self.current_sim_time = 0.0
+sys.path.append(os.getcwd())
+import funciones
+import parametros as pm
+try:
+    import grafica
+except ImportError:
+    grafica = None
+    print("⚠️ Advertencia: grafica.py no encontrado.")
+
+class HeadlessApp:
+    def __init__(self, df_datos, df_bodega, df_maq, df_areas):
+        self.db_procesos = []
+        self.db_bodega = df_bodega.to_dict('records')
+        self.db_maquinaria = df_maq.to_dict('records')
+        self.db_areas = df_areas.to_dict('records')
+        self.proc_state = {} 
+        self.cb_info = {"ID": None}
+        
+        self.virtual_time = 0.0 
+        self.event_queue = []   
         self.counter = itertools.count()
+        
+        # Historial
+        self.historial = {
+            "datos": [], "bodega": [], "maq": [], "areas": []
+        }
+        self.last_snap_time = -0.1 
+        
+        self._init_procesos(df_datos)
 
-    def set_time(self, t):
-        self.current_sim_time = t
+    def _init_procesos(self, df):
+        for _, r in df.iterrows():
+            row = r.to_dict()
+            row["META"] = f"0/{int(row.get('META', 0))}"
+            # Aseguramos formato ratio desde el inicio para evitar 1/0
+            row["MAQUINAS"] = f"0/{int(row.get('MAQUINAS', 0))}"
+            row["PERSONAL"] = f"0/{int(row.get('PERSONAL', 0))}"
+            
+            row["ACTIVO"] = True
+            row["ESTADO"] = "Inactivo"
+            # Inicializar tiempos como floats para cálculo preciso
+            row["T.ACTIVO"] = 0.0 
+            row["T.PAUSADO"] = 0.0
+            row["T.INICIO"] = None # Marca de tiempo cuando inicia
+            
+            if row.get("CUELLO_DE_BOTELLA"):
+                self.cb_info["ID"] = row["ID_PROCESO"]
+            self.db_procesos.append(row)
 
-    def after(self, ms, func=None, *args):
-        trigger_time = self.current_sim_time + (ms / 1000.0)
-        count = next(self.counter)
-        heapq.heappush(self.events, (trigger_time, count, func, args))
+    def after(self, ms, func):
+        delay = max(0.001, ms / 1000.0)
+        trigger = self.virtual_time + delay
+        heapq.heappush(self.event_queue, (trigger, next(self.counter), func))
 
-    def process_pending_events(self):
-        while self.events and self.events[0][0] <= self.current_sim_time:
-            evt_time, _, func, args = heapq.heappop(self.events)
-            if func:
-                try: func(*args)
-                except Exception: pass
+    def _update_clocks(self, delta):
+        if delta <= 0: return
+        for p in self.db_procesos:
+            if str(p.get("ACTIVO")).lower() != "true":
+                continue
 
-# --- 2. ÁRBITRO CON CANDADO DE SEGURIDAD (HARD LOCK) 🔒 ---
-def spy_meta_avanzar(app, id_proceso, parada=0):
-    info = app.tree_procesos["data"].get(id_proceso)
-    if not info: return False
-    
-    # --- CANDADO: Si ya terminamos, ignoramos cualquier evento extra ---
-    if info.get("_finalizado_hard", False):
+            estado = str(p.get("ESTADO", "")).upper()
+            
+            # Registrar inicio de vida si no está inactivo
+            if estado != "INACTIVO" and p["T.INICIO"] is None:
+                p["T.INICIO"] = self.virtual_time
+
+            # Solo sumar a ACTIVO si está trabajando realmente
+            if "TRABAJANDO" in estado or "PRODUCIENDO" in estado:
+                p["T.ACTIVO"] += delta
+            
+            # El tiempo pausado se calcula matemáticamente en el snapshot:
+            # T.PAUSADO = (Tiempo Total Transcurrido - T.ACTIVO)
+
+    def run(self):
+        print("🚀 Ejecutando simulación con gráficas...")
+        ids = [p["ID_PROCESO"] for p in self.db_procesos]
+        
+        self.virtual_time = 0.0
+        self._fill_history_gap(0.0)
+        
+        for pid in ids:
+            funciones.simular_proceso(self, pid, "IDEAL", None, None, None, None, None, 1.0)
+
+        while self.event_queue:
+            t, _, func = heapq.heappop(self.event_queue)
+            
+            delta = t - self.virtual_time
+            self._update_clocks(delta)
+            
+            self._fill_history_gap(t)
+            
+            self.virtual_time = t
+            func()
+            
+            if self._check_finished(): break
+                
+        self._fill_history_gap(self.virtual_time)
+        print(f"✅ Finalizado en T={self.virtual_time:.3f}s simulados.")
+        self.print_report()
+        
+        if grafica:
+            self.generate_graph()
+
+    def _check_finished(self):
+        for p in self.db_procesos:
+            if str(p.get("ACTIVO")).lower() == "true": return False
         return True
 
-    # 1. Incrementar
-    actual = info.get("_contador_produccion", 0) + 1
+    def _fill_history_gap(self, target_time):
+        next_snap = round(self.last_snap_time + 0.1, 1)
+        epsilon = 1e-9
+        while next_snap <= target_time + epsilon:
+            self._take_snapshot(next_snap)
+            self.last_snap_time = next_snap
+            next_snap = round(self.last_snap_time + 0.1, 1)
+
+    def _take_snapshot(self, t):
+        def snap(source):
+            final_rows = []
+            for row in source:
+                # 1. Recuperar valores numéricos
+                t_activo = row.get("T.ACTIVO", 0.0)
+                t_inicio = row.get("T.INICIO")
+                
+                # 2. CÁLCULO MATEMÁTICO DE PAUSA
+                if t_inicio is not None:
+                    t_vida = t - t_inicio
+                    t_pausado = max(0.0, t_vida - t_activo)
+                else:
+                    t_pausado = 0.0
+                
+                # Guardar el cálculo en la DB para la gráfica final
+                row["T.PAUSADO"] = t_pausado
+
+                # 3. Formatear para historial (copia para no romper floats)
+                r_copy = row.copy()
+                r_copy["T_HIST"] = t
+                r_copy["T.ACTIVO"] = f"{t_activo:.3f}"
+                r_copy["T.PAUSADO"] = f"{t_pausado:.3f}"
+                final_rows.append(r_copy)
+            return final_rows
+
+        self.historial["datos"].extend(snap(self.db_procesos))
+        self.historial["bodega"].extend([{**r, "T_HIST": t} for r in self.db_bodega])
+        self.historial["maq"].extend([{**r, "T_HIST": t} for r in self.db_maquinaria])
+        self.historial["areas"].extend([{**r, "T_HIST": t} for r in self.db_areas])
+
+    def print_report(self):
+        print("\n" + "="*90)
+        print("RESUMEN CUELLO DE BOTELLA (FINAL)")
+        print(pd.DataFrame([{
+            "ID_PROCESO_CUELLO": self.cb_info["ID"],
+            "BUFFER": 100.0,
+            "TIEMPO_TOTAL_S": self.virtual_time
+        }]).to_string(index=False))
+        print("="*90)
+
+        # CONFIGURACIÓN PARA MOSTRAR TODO (SIN LÍMITES)
+        pd.set_option('display.max_columns', 20)
+        pd.set_option('display.width', 1000)
+        pd.set_option('display.max_rows', None)
+        
+        def print_table(key, title, cols):
+            if self.historial[key]:
+                df = pd.DataFrame(self.historial[key])
+                c_ord = ["T_HIST"] + [c for c in cols if c in df.columns]
+                print(f"\n{title} (COMPLETO)")
+                print(df[c_ord].to_string(index=False))
+
+        print_table("datos", "HISTORIAL DATOS", ["ID_PROCESO", "INCIALES", "MAQUINAS", "PERSONAL", "META", "ACTIVO", "ESTADO", "T.ACTIVO", "T.PAUSADO"])
+        print_table("bodega", "HISTORIAL BODEGA", ["AREA", "MATERIA", "CANTIDAD"])
+        print_table("maq", "HISTORIAL MAQUINARIA", ["AREA", "MAQUINARIA", "CANTIDAD"])
+        print_table("areas", "HISTORIAL AREAS", ["AREA", "PERSONAL"])
+
+    def generate_graph(self):
+        print("\n📊 Generando gráfica desde historial...")
+        try:
+            datos_para_grafica = []
+            for p in self.db_procesos:
+                datos_para_grafica.append({
+                    "id_proceso": p.get("ID_PROCESO"),
+                    "t_activo": p.get("T.ACTIVO", 0.0),
+                    "t_pausado": p.get("T.PAUSADO", 0.0)
+                })
+            
+            b64_str = grafica.grafico_tiempos_ideal_real(datos_para_grafica)
+            
+            with open("grafica_base64.txt", "w") as f:
+                f.write(b64_str)
+            
+            with open("grafica.png", "wb") as f:
+                f.write(base64.b64decode(b64_str))
+                
+            print(f"✅ Gráfica generada exitosamente.")
+        except Exception as e:
+            print(f"❌ Error en gráfica: {e}")
+            import traceback
+            traceback.print_exc()
+
+if __name__ == "__main__":
+    if not os.path.exists("DATOS.xlsx"):
+        print("❌ Falta DATOS.xlsx")
+        sys.exit()
+
+    df = pd.read_excel("DATOS.xlsx")
+    processed = funciones.preparar_procesos(df)
     
-    # Asegurar meta entera
-    try:
-        meta_total = int(info.get("_meta_total", 100))
-    except:
-        meta_total = 100
+    BODEGA = pd.DataFrame([{"AREA": 0, "MATERIA": "M-001", "CANTIDAD": 1000}, {"AREA": 0, "MATERIA": "S-002", "CANTIDAD": 10}])
+    MAQ = pd.DataFrame([{"AREA": 1, "MAQUINARIA": "MAQ-001", "CANTIDAD": 10}, {"AREA": 2, "MAQUINARIA": "MAQ-001", "CANTIDAD": 4}])
+    AREAS = pd.DataFrame([{"AREA": 1, "PERSONAL": 12}, {"AREA": 2, "PERSONAL": 8}])
     
-    # 2. Verificar si nos pasamos
-    if actual > meta_total:
-        actual = meta_total 
-    
-    info["_contador_produccion"] = actual
-    info["META"] = f"{int(actual)}/{int(meta_total)}"
-    info["CANTIDAD"] = actual 
-    
-    # 3. ACTIVAR CANDADO SI LLEGAMOS A LA META
-    if actual >= meta_total:
-        info["_finalizado_hard"] = True  
-        info["ESTADO"] = "FINALIZADO"    
-        info["ACTIVO"] = False           
-        return True 
-    
-    return False
-
-class VirtualApp:
-    def __init__(self, df_datos, df_areas, df_maquinaria, df_bodega):
-        cols = df_datos.columns.tolist() + ["T.ACTIVO", "T.PAUSADO", "META", "_contador_produccion", "_finalizado_hard"]
-        self.tree_procesos = {"data": {}, "columns": cols}
-        self.tree_bodega = {"data": {}, "columns": ["AREA", "MATERIA", "CANTIDAD"]}
-        self.tree_maquinaria = {"data": {}, "columns": ["AREA", "MAQUINARIA", "CANTIDAD"]}
-        self.tree_areas = {"data": {}, "columns": ["AREA", "PERSONAL"]}
-        
-        self.root = MockRoot()
-        
-        self.datos = df_datos
-        self.df_areas = df_areas
-        self.df_maquinaria = df_maquinaria
-        self.df_bodega = df_bodega
-        
-        # FACTOR DE VELOCIDAD
-        self.SPEED_FACTOR = 300.0 
-        
-        for _, row in df_datos.iterrows():
-            pid = row["ID_PROCESO"]
-            row_dict = row.to_dict()
-            row_dict["AREA"] = 0 
-            
-            try:
-                meta_orig = int(row.get("META", 100))
-            except:
-                meta_orig = 100
-            
-            row_dict["_meta_total"] = meta_orig
-            row_dict["_contador_produccion"] = 0
-            row_dict["_finalizado_hard"] = False 
-            row_dict["META"] = f"0/{meta_orig}"
-            
-            # Fix Listas Consumo
-            m_str = str(row.get("MATERIA", ""))
-            if m_str and m_str.lower() != "nan":
-                row_dict["MATERIA"] = [x.strip().upper() for x in m_str.split(",") if x.strip()]
-                row_dict["CANTIDAD_CONSUMO"] = [1.0] * len(row_dict["MATERIA"])
-            else:
-                row_dict["MATERIA"] = []
-                row_dict["CANTIDAD_CONSUMO"] = []
-
-            # Fix Listas Producción
-            p_str = str(row.get("PRODUCE", ""))
-            if p_str and p_str.lower() != "nan":
-                row_dict["PRODUCE"] = [x.strip().upper() for x in p_str.split(",") if x.strip()]
-                row_dict["CANTIDAD_PRODUCE"] = [1.0] * len(row_dict["PRODUCE"])
-            else:
-                row_dict["PRODUCE"] = []
-                row_dict["CANTIDAD_PRODUCE"] = []
-
-            # Params
-            try:
-                raw_p = ast.literal_eval(str(row.get("PARAMETROS", "[10, 1]")))
-                row_dict["PARAMETROS"] = [float(x)/self.SPEED_FACTOR for x in raw_p]
-            except:
-                row_dict["PARAMETROS"] = [10.0/self.SPEED_FACTOR, 1.0]
-            
-            row_dict["PARADA"] = 1.0
-            
-            row_dict.update({
-                "ESTADO": "ESPERANDO", 
-                "ACTIVO": True, 
-                "T.ACTIVO": "00:00:00", "_sec_activo": 0.0,
-                "T.PAUSADO": "00:00:00", "_sec_pausado": 0.0
-            })
-            self.tree_procesos["data"][pid] = row_dict
-
-        if not df_bodega.empty:
-            for _, row in df_bodega.iterrows():
-                key = f"0_{str(row['MATERIA']).strip()}"
-                self.tree_bodega["data"][key] = row.to_dict()
-        
-        if not df_maquinaria.empty:
-            for _, row in df_maquinaria.iterrows():
-                key = f"0_{str(row['MAQUINARIA']).strip()}"
-                self.tree_maquinaria["data"][key] = row.to_dict()
-                
-        self.tree_areas["data"][0] = {"AREA": 0, "PERSONAL": 9999}
-
-def _fmt_time(s): 
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    return f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
-
-def ejecutar_simulacion_angelo(df_datos: pd.DataFrame, cantidad_meta: int, umbral_pausa: float = 0.20):
-    original_meta = funciones.meta_avanzar
-    funciones.meta_avanzar = spy_meta_avanzar 
-    
-    try:
-        df_datos["META"] = cantidad_meta
-        df_datos["AREA"] = 0 
-
-        # 1. MAQUINARIA
-        maquinas_rows = []
-        if "ID_MAQUINA" in df_datos.columns:
-            for _, row in df_datos.drop_duplicates("ID_MAQUINA").iterrows():
-                qty = row["MAQUINAS"] if row.get("MAQUINAS", 0) > 0 else 999
-                maquinas_rows.append({"AREA": 0, "MAQUINARIA": row["ID_MAQUINA"], "CANTIDAD": qty})
-        df_maquinaria = pd.DataFrame(maquinas_rows)
-
-        # 2. BODEGA
-        todos = set()
-        producidos = set()
-        for _, row in df_datos.iterrows():
-            for m in str(row.get("MATERIA", "")).split(","):
-                if m.strip(): todos.add(m.strip().upper())
-            for p in str(row.get("PRODUCE", "")).split(","):
-                if p.strip(): 
-                    todos.add(p.strip().upper())
-                    producidos.add(p.strip().upper())
-
-        bodega_rows = []
-        for m in todos:
-            cant = 0 if m in producidos else 999999
-            bodega_rows.append({"AREA": 0, "MATERIA": m, "CANTIDAD": cant})
-        df_bodega = pd.DataFrame(bodega_rows)
-        
-        # 3. AREA
-        df_areas = pd.DataFrame([{"AREA": 0, "PERSONAL": 9999}])
-
-        # --- SIMULACIÓN ---
-        TIMEOUT_REAL = 15.0       
-        MAX_INTENTOS = 6
-        DISPLAY_MULTIPLIER = 300.0
-        SNAPSHOT_INTERVAL = 5.0 
-        
-        mejor_resultado = None
-        intento = 1
-        
-        while intento <= MAX_INTENTOS:
-            print(f"--- Iteración {intento} (Nombres + Auto Stop) ---")
-            app = VirtualApp(df_datos.copy(), df_areas, df_maquinaria, df_bodega)
-            
-            ids_procesos = list(app.tree_procesos["data"].keys())
-            for pid in ids_procesos:
-                try: funciones.simular_proceso(app, pid, "simulacion", app.df_bodega, app.df_areas, app.df_maquinaria, app.datos, pd.DataFrame())
-                except: pass
-
-            start_real = time.time()
-            sim_time = 0.0
-            last_real_tick = start_real
-            last_snapshot = -SNAPSHOT_INTERVAL
-            historial = []
-            
-            while (time.time() - start_real) < TIMEOUT_REAL:
-                now_real = time.time()
-                dt_real = now_real - last_real_tick
-                last_real_tick = now_real
-                dt_sim = dt_real * DISPLAY_MULTIPLIER
-                sim_time += dt_sim
-                
-                app.root.set_time(sim_time)
-                app.root.process_pending_events()
-                
-                all_inactive = True
-                todos_terminaron = True # Bandera para corte de tiempo
-                
-                for pid in ids_procesos:
-                    info = app.tree_procesos["data"][pid]
-                    est = info.get("ESTADO", "ESPERANDO")
-                    
-                    # Chequear si este proceso ya acabó definitivamente
-                    if not info.get("_finalizado_hard", False):
-                        todos_terminaron = False
-
-                    # Si terminó, NO sumar tiempo (Congelar cronómetro visual)
-                    if info.get("_finalizado_hard", False) or est in ["Finalizado", "FINALIZADO"]:
-                         pass 
-                    elif str(est).startswith("ACTIVO") or "TRABAJANDO" in str(est):
-                        info["_sec_activo"] += dt_sim
-                    else:
-                        info["_sec_pausado"] += dt_sim
-                    
-                    info["T.ACTIVO"] = _fmt_time(info["_sec_activo"])
-                    info["T.PAUSADO"] = _fmt_time(info["_sec_pausado"])
-                    
-                    if est not in ["Finalizado", "FINALIZADO", "INACTIVO", "BLOQUEADO"]:
-                        all_inactive = False
-
-                if (sim_time - last_snapshot) >= SNAPSHOT_INTERVAL:
-                    snap = {"timestamp": sim_time, "procesos": {}}
-                    for pid in ids_procesos:
-                        inf = app.tree_procesos["data"][pid]
-                        # --- CAMBIO 1: Nombre en lugar de ID para el Frontend ---
-                        nombre_clave = inf.get("NOMBRE", str(pid))
-                        snap["procesos"][nombre_clave] = {
-                            "estado": inf.get("ESTADO"),
-                            "buffer_actual": inf.get("CANTIDAD", 0),
-                            "producido": inf.get("META", "0/0"),
-                            "nombre": nombre_clave 
-                        }
-                    historial.append(snap)
-                    last_snapshot = sim_time
-                
-                # --- CAMBIO 2: Corte Inmediato si todos terminaron ---
-                if todos_terminaron:
-                    break
-
-                if all_inactive and not app.root.events:
-                    break
-
-            # Análisis
-            a_optimizar = []
-            detalles = {}
-            for pid, info in app.tree_procesos["data"].items():
-                tot = info["_sec_activo"] + info["_sec_pausado"]
-                ratio = (info["_sec_pausado"]/tot) if tot > 0 else 0
-                est = info.get("ESTADO", "")
-                
-                if ("S/M" in est or ratio > umbral_pausa) and est != "FINALIZADO":
-                    a_optimizar.append(pid)
-                
-                # --- CAMBIO 1 (Parte 2): Nombre en la tabla final también ---
-                nombre_clave = info.get("NOMBRE", f"Proceso {pid}")
-                if nombre_clave in detalles:
-                    nombre_clave = f"{nombre_clave} ({pid})"
-
-                detalles[nombre_clave] = {
-                    "buffer_recomendado": info.get("CANTIDAD", 0),
-                    "estado_final": est,
-                    "t_activo": info["T.ACTIVO"],
-                    "nombre": info.get("NOMBRE", str(pid))
-                }
-                
-            mejor_resultado = {
-                "iteracion": intento,
-                "tiempo_computo": time.time() - start_real,
-                "detalles_procesos": detalles,
-                "historial": historial,
-                "status": "Optimizado"
-            }
-            
-            if not a_optimizar: break
-            
-            cambios = False
-            for pid in a_optimizar:
-                idx = df_datos.index[df_datos["ID_PROCESO"] == pid].tolist()
-                if idx:
-                    curr = df_datos.at[idx[0], "CANTIDAD"]
-                    if curr < 1000:
-                        df_datos.at[idx[0], "CANTIDAD"] = int(curr * 2)
-                        cambios = True
-            
-            if not cambios: break
-            intento += 1
-
-    finally:
-        funciones.meta_avanzar = original_meta
-
-    return mejor_resultado
+    app = HeadlessApp(processed, BODEGA, MAQ, AREAS)
+    app.run()
