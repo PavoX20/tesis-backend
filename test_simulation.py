@@ -1,115 +1,80 @@
-import requests
-import json
-import base64
-import time
+import sys
+import os
+import pandas as pd
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-# --- CONFIGURACIÓN PARA AIRFLOW ---
-# Asegúrate de que tu backend esté corriendo en este puerto
-URL = "http://localhost:8000/simulacion/visual-run" 
+# --- 1. AJUSTE DE RUTAS ---
+# Añadimos la raíz del proyecto al path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
 
-# Según tus CSVs: 
-# ID 110 = Airflow Diagrama Principal
-ID_CATALOGO_AIRFLOW = 110  
+# Intentamos importar el servicio
+try:
+    from app.services.simulation.run_simulation import run_simulation_service
+    print("✅ Servicio de simulación importado correctamente.")
+except ImportError as e:
+    print(f"❌ Error crítico importando el servicio: {e}")
+    print(f"   Ruta actual: {sys.path}")
+    sys.exit(1)
 
-# Meta de producción para estresar el algoritmo
-CANTIDAD_META = 5
 
-def probar_simulacion():
-    print(f"🏭 Iniciando prueba de simulación para: AIRFLOW (ID {ID_CATALOGO_AIRFLOW})")
-    print(f"🎯 Meta de producción: {CANTIDAD_META} unidades")
-    print("-" * 60)
+DATABASE_URL = "postgresql://postgres.ihnqsldtgehizbzfckey:NuevaPassword11234@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
 
-    # Payload exacto como lo espera tu Pydantic Schema
-    payload = {
-        "productos": [
-            {
-                "id_catalogo": ID_CATALOGO_AIRFLOW,
-                "cantidad": CANTIDAD_META
-            }
-        ],
-        "umbral_pausa": 0.20 # Sensibilidad del algoritmo
-    }
 
-    start_time = time.time()
-
+def main():
+    print(f"🔌 Conectando a BD: {DATABASE_URL} ...")
+    
     try:
-        # 1. Enviar Petición al Backend
-        print("⏳ Enviando datos al cerebro de Angelo...")
-        response = requests.post(URL, json=payload)
+        engine = create_engine(DATABASE_URL)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        db = SessionLocal()
         
-        # 2. Verificar Status
-        if response.status_code == 200:
-            data = response.json()
-            total_time = time.time() - start_time
+        # Prueba de conexión simple
+        with engine.connect() as conn:
+            print("✅ Conexión exitosa a la Base de Datos.")
             
-            print(f"\n✅ ¡ÉXITO! Respuesta recibida en {total_time:.2f}s")
-            print("=" * 60)
-            
-            # --- ANÁLISIS DE RESULTADOS ---
-            
-            resumen = data.get("resumen", {})
-            print(f"🧠 Status Algoritmo: {resumen.get('status')}")
-            print(f"🔄 Iteraciones realizadas: {resumen.get('iteraciones')} (Si es > 1, optimizó buffers)")
-            
-            detalles = data.get("detalles_procesos", {})
-            print(f"\n📋 REPORTE DE PROCESOS ({len(detalles)} detectados):")
-            print(f"{'PROCESO':<40} | {'BUFFER REC.':<12} | {'ESTADO'}")
-            print("-" * 70)
-            
-            cuello_detectado = False
-            
-            for nombre, info in detalles.items():
-                es_cuello = info.get("es_cuello", False)
-                estado_str = "🔴 CUELLO DE BOTELLA" if es_cuello else "🟢 Normal"
-                buffer = f"{info.get('buffer_recomendado', 0)} u."
-                
-                if es_cuello: cuello_detectado = True
-                
-                # Imprimimos filas, resaltando el cuello
-                prefix = "👉 " if es_cuello else "   "
-                print(f"{prefix}{nombre:<37} | {buffer:<12} | {estado_str}")
+    except Exception as e:
+        print(f"❌ Error conectando a la BD: {e}")
+        print("   Verifica las credenciales en 'test_simulation.py'")
+        sys.exit(1)
 
-            print("-" * 70)
-            if not cuello_detectado:
-                print("⚠️ No se marcó ningún proceso como Cuello de Botella (Revisar columna 'CAPACIDAD').")
-
-            # --- VERIFICACIÓN DE ANIMACIÓN ---
-            historial = data.get("historial_animacion", [])
-            print(f"\n🎬 Película generada: {len(historial)} frames totales.")
-            if len(historial) > 0:
-                print(f"   - Inicio: T={historial[0]['timestamp']}s")
-                print(f"   - Fin:    T={historial[-1]['timestamp']}s")
-                
-                # Verificamos si en el último frame se llegó a la meta
-                last_frame = historial[-1]["procesos"]
-                print("   - Estado Final (Muestra):")
-                count = 0
-                for k, v in last_frame.items():
-                    if count < 3: # Mostrar solo los primeros 3 para no saturar consola
-                        print(f"     * {k}: {v['producido']}")
-                    count += 1
-                if count > 3: print("     * ...")
-
-            # --- GUARDAR GRÁFICA ---
-            grafica = data.get("grafica_base64")
-            if grafica:
-                filename = "resultado_airflow.png"
-                with open(filename, "wb") as f:
-                    f.write(base64.b64decode(grafica))
-                print(f"\n📊 Gráfica guardada como: '{filename}' (Ábrela para ver Tiempos Reales vs Ideales)")
-
+    # --- 3. PARÁMETROS DE PRUEBA ---
+    ZAPATO_ID = 110  # ID del Airflow
+    META = 50        # Producir 50 pares
+    
+    print(f"\n🧪 Iniciando TEST de Simulación para Zapato ID={ZAPATO_ID}, Meta={META}")
+    
+    try:
+        # Llamada al servicio real
+        resultado = run_simulation_service(db, ZAPATO_ID, META)
+        
+        if "error" in resultado:
+            print(f"\n❌ Error devuelto por el servicio: {resultado['error']}")
         else:
-            print(f"\n❌ ERROR DEL SERVIDOR ({response.status_code}):")
-            try:
-                print(json.dumps(response.json(), indent=2))
-            except:
-                print(response.text)
+            print("\n✨ ¡PRUEBA EXITOSA!")
+            meta = resultado['simulation_metadata']
+            res = resultado['results']
+            
+            print(f"   - Tiempo Total: {meta['total_time_seconds']}s")
+            print(f"   - Cuello de Botella: Proceso {meta['bottleneck_process_id']}")
+            
+            # Info de la gráfica
+            chart_len = len(res['chart_base64'])
+            print(f"   - Gráfica Base64 generada: {'SÍ' if chart_len > 0 else 'NO'} ({chart_len} caracteres)")
+            
+            # Info del historial
+            filas_hist = len(res['history_main'])
+            print(f"   - Historial generado: {filas_hist} pasos registrados.")
+            
+            print("\n📂 Revisa 'debug_dataframe_simulacion.xlsx' y 'grafica.png' en la carpeta.")
 
     except Exception as e:
-        print(f"\n🔥 EXCEPCIÓN DE CONEXIÓN: {str(e)}")
-        print("Pasos para solucionar:")
-        print("1. ¿Está corriendo el backend? (uvicorn main:app --reload)")
-        print("2. ¿El puerto es el correcto? (8000)")
+        print(f"\n🔥 Excepción no controlada durante la ejecución: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
 
 if __name__ == "__main__":
-    probar_simulacion()
+    main()

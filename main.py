@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from app.api.routers.simulation_router import router as simulation_router
 
 # --- 2. CORRECCIÓN DE RUTA (HACK PARA VERCEL/RENDER) ---
 # Le dice a Python dónde encontrar la carpeta 'app'
@@ -31,8 +32,8 @@ from app.api.routers import (
     dependencia_router,
     dato_proceso_router,
     analysis_router,
-    simulation_router,
-    inventario_router
+    inventario_router,
+
 )
 
 # --- 4. LISTA DE IP PERMITIDAS (YA NO SE USA) ---
@@ -115,11 +116,10 @@ for router in [
     dependencia_router,
     dato_proceso_router,
     analysis_router,
-    simulation_router,
     inventario_router
 ]:
     app.include_router(router)
-
+app.include_router(simulation_router, prefix="/api/simulation", tags=["Simulation"])
 # --- 10. RUTA RAÍZ ---
 @app.get("/")
 def root():

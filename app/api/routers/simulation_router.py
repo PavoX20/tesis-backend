@@ -1,41 +1,39 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
-from app.core.database import get_session 
+# 1. Importamos la dependencia de BD que creamos en app/core/database.py
+from app.core.database import get_db 
 
-from app.api.schemas.simulation import (
-    SimulationRequest, 
-    VisualSimulationResponse   
-)
+# 2. Importamos los esquemas correctos (Input y Output)
+from app.api.schemas.simulation import SimulationRequest, VisualSimulationResponse
 
-# IMPORTANTE: Importamos el nuevo servicio de Angelo
-from app.services.simulation import angelo_simulation 
+# 3. Importamos el servicio "Jefe de Orquesta" que ya probamos
+from app.services.simulation.run_simulation import run_simulation_service
 
-router = APIRouter(
-    prefix="/simulacion",
-    tags=["Simulación"]
-)
+# Definimos el router. 
+# NOTA: El prefijo "/api/simulation" ya se define en main.py, así que aquí lo dejamos limpio.
+router = APIRouter()
 
-@router.post("/visual-run", response_model=VisualSimulationResponse)
-def ejecutar_simulacion_visual(
-    payload: SimulationRequest, # Usamos el request completo (lista de productos)
-    db: Session = Depends(get_session)
+@router.post("/run", response_model=VisualSimulationResponse, summary="Ejecutar Simulación")
+def run_simulation_endpoint(
+    payload: SimulationRequest, 
+    db: Session = Depends(get_db)
 ):
     """
-    Endpoint principal para la Simulación de Angelo.
-    1. Calcula Buffers Óptimos (Optimización).
-    2. Genera Historial de Animación (Película).
-    3. Genera Gráfica de Tiempos (Base64).
+    Endpoint principal para la Simulación.
+    Recibe: shoe_id y goal.
+    Devuelve: Metadata, Historial completo y Gráfica en Base64.
     """
     try:
-        # Llamamos al nuevo servicio "Jefe de Orquesta"
-        resultado = angelo_simulation.run_simulation(db, payload)
+        # Llamamos al servicio real
+        resultado = run_simulation_service(db, payload.shoe_id, payload.goal)
         
-        # Validamos si hubo error controlado en el servicio
+        # Si el servicio devuelve un error (ej. no encuentra el zapato), lanzamos 500 o 400
         if "error" in resultado:
+             print(f"❌ Error en servicio: {resultado['error']}")
              raise HTTPException(status_code=400, detail=resultado["error"])
 
+        # Retornamos el diccionario directo. Pydantic (VisualSimulationResponse) lo validará.
         return resultado
 
     except HTTPException as e:
@@ -43,5 +41,5 @@ def ejecutar_simulacion_visual(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"Error Critical en Angelo Engine: {e}")
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        print(f"🔥 Error Crítico en Endpoint Simulación: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
