@@ -1,5 +1,4 @@
 # --- 1. IMPORTACIONES BÁSICAS ---
-# Importamos las librerías necesarias
 import os
 import sys
 from pathlib import Path
@@ -7,17 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.api.routers.simulation_router import router as simulation_router
 
 # --- 2. CORRECCIÓN DE RUTA (HACK PARA VERCEL/RENDER) ---
-# Le dice a Python dónde encontrar la carpeta 'app'
 FILE = Path(__file__).resolve()
 ROOT = FILE.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
 # --- 3. IMPORTACIÓN DE TUS RUTAS ---
-from app.core.database import init_db # Importamos init_db
+from app.core.database import init_db
 from app.api.routers import (
     catalogo_router,
     materia_router,
@@ -33,17 +30,15 @@ from app.api.routers import (
     dato_proceso_router,
     analysis_router,
     inventario_router,
-
+    simulation_router # Importamos el router unificado
 )
 
 # --- 4. LISTA DE IP PERMITIDAS (YA NO SE USA) ---
 # ALLOWED_IPS = ["190.110.42.214", "127.0.0.1"]
 
-# --- 5. FUNCIÓN 'LIFESPAN' (PARA TU BBDD LOCAL) ---
+# --- 5. FUNCIÓN 'LIFESPAN' ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Modificado para que solo se ejecute si pones RUN_INIT_DB=1
-    # En local, puedes ejecutar: RUN_INIT_DB=1 uvicorn main:app
     if os.getenv("RUN_INIT_DB") == "1":
         print("INFO:     Ejecutando init_db() al arrancar...")
         init_db()
@@ -56,33 +51,11 @@ async def lifespan(app: FastAPI):
 # --- 6. CREACIÓN DE LA APP ---
 app = FastAPI(title="Process Optimizer API", lifespan=lifespan)
 
-# --- 7. MIDDLEWARE DE FILTRO DE IP (¡COMENTADO!) ---
-#
-# ¡¡¡HEMOS COMENTADO ESTE BLOQUE!!!
-# Ya no queremos bloquear a la gente por IP.
-# La seguridad ahora la maneja el Bloque 8 (CORS),
-# que solo permite peticiones desde tu URL de Vercel.
-#
-# @app.middleware("http")
-# async def ip_filter_middleware(request: Request, call_next):
-#     ip = request.client.host
-#     
-#     if ip not in ALLOWED_IPS:
-#         return JSONResponse(
-#             status_code=403, 
-#             content={"detail": "Acceso no permitido"}
-#         )
-#     
-#     response = await call_next(request)
-#     return response
+# --- 7. MIDDLEWARE DE FILTRO DE IP (COMENTADO) ---
+# ... (Igual que antes)
 
-# --- 8. MIDDLEWARE DE CORS (¡LA SEGURIDAD REAL!) ---
-# Esto está perfecto. Render leerá tu variable de entorno
-# 'FRONTEND_ORIGIN' y solo permitirá peticiones
-# que vengan de tu URL de Vercel (y de localhost).
-
+# --- 8. MIDDLEWARE DE CORS ---
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "*")
-
 local_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -102,6 +75,8 @@ app.add_middleware(
 )
 
 # --- 9. REGISTRO DE RUTAS ---
+
+# A. Rutas Estándar
 for router in [
     catalogo_router,
     materia_router,
@@ -119,7 +94,17 @@ for router in [
     inventario_router
 ]:
     app.include_router(router)
-app.include_router(simulation_router, prefix="/api/simulation", tags=["Simulation"])
+
+# B. Ruta de Simulación (Configuración Especial)
+# IMPORTANTE: Usamos el prefijo "/simulacion" para coincidir con:
+# 1. El frontend antiguo (/simulacion/run)
+# 2. El frontend nuevo (/simulacion/visual-run)
+app.include_router(
+    simulation_router, # Accedemos al objeto router dentro del módulo
+    prefix="/simulacion", 
+    tags=["Simulación"]
+)
+
 # --- 10. RUTA RAÍZ ---
 @app.get("/")
 def root():
