@@ -10,7 +10,7 @@ from app.core.database import get_db
 # Servicio Legacy (Simulación General/Tablas)
 from app.services.simulation import service as simulation_service
 # Servicio Nuevo (Simulación Visual/Angelo Engine)
-from app.services.simulation.run_simulation import run_simulation_service
+from app.services.simulation.run_simulation import run_simulation_service, run_optimization_analysis
 
 # 3. IMPORTACIÓN DE ESQUEMAS
 # Necesitamos importar ambos tipos de Request. 
@@ -18,7 +18,8 @@ from app.services.simulation.run_simulation import run_simulation_service
 from app.api.schemas.simulation import (
     SimulationRequest,           # Input para la Simulación General (Lista de productos)
     SimulationResponse,          # Output para la Simulación General
-    VisualSimulationResponse     # Output para la Visual
+    VisualSimulationResponse,
+    OptimizationResponse,
 )
 
 # Definimos el router.
@@ -109,4 +110,43 @@ def ejecutar_simulacion_visual(
         import traceback
         traceback.print_exc()
         print(f"🔥 Error en Simulación Visual: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+
+# ==========================================
+# ENDPOINT 3: ANÁLISIS DE OPTIMIZACIÓN (COMBINATORIA)
+# Ruta: POST /simulacion/optimize
+# ==========================================
+@router.post("/optimize", response_model=OptimizationResponse, summary="Optimizar Recursos")
+def analizar_optimizacion(
+    payload: SimulationRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    Identifica el cuello de botella y simula combinaciones de Máquinas/Personal
+    para encontrar tiempos más eficientes.
+    """
+    try:
+        # Extracción segura de ID y Goal (Igual que en visual-run)
+        shoe_id = 0
+        goal = 0
+        if hasattr(payload, 'shoe_id') and payload.shoe_id:
+            shoe_id = payload.shoe_id
+            goal = payload.goal
+        elif hasattr(payload, 'productos') and payload.productos:
+            shoe_id = payload.productos[0].id_catalogo
+            goal = payload.productos[0].cantidad
+
+        # Llamada al nuevo servicio
+        resultado = run_optimization_analysis(db, shoe_id, goal)
+        
+        if "error" in resultado:
+             raise HTTPException(status_code=400, detail=resultado["error"])
+
+        return resultado
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"🔥 Error en Optimización: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")

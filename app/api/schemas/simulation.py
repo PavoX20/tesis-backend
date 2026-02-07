@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 # ==========================================
-# 1. MODELOS AUXILIARES (Restaurados para Simulación General)
+# 1. MODELOS AUXILIARES (Legacy)
 # ==========================================
 
 class ProductoSolicitud(BaseModel):
@@ -35,7 +35,7 @@ class ReporteArea(BaseModel):
 # 2. MODELOS DE RESPUESTA
 # ==========================================
 
-# A. Respuesta Legacy (Para el endpoint /run - Tablas y Costos)
+# A. Respuesta Legacy
 class SimulationResponse(BaseModel):
     diagrama_id: int
     tiempo_total: float
@@ -53,28 +53,47 @@ class SimulationResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# B. Respuesta Visual (Para el endpoint /visual-run - Animación)
-# Mantenemos la estructura "Actual" que funciona con tu Results.tsx
+# B. Respuesta Visual
 class VisualSimulationResponse(BaseModel):
     status: str
     simulation_metadata: Dict[str, Any]
     results: Dict[str, Any] 
-    # Dentro de 'results' viajará 'chart_base64' y 'history_main'
 
 # ==========================================
-# 3. MODELO DE SOLICITUD UNIFICADO
+# 3. MODELOS PARA OPTIMIZACIÓN (NUEVO)
+# ==========================================
+
+# 1. El modelo más pequeño (Hijo)
+class DetalleConfigProceso(BaseModel):
+    id_proceso: int
+    nombre_proceso: str
+    maquinas_asignadas: int
+    personal_asignado: int
+
+# 2. El modelo intermedio (Contenedor de hijos)
+class EscenarioCombinatorio(BaseModel):
+    ranking: int
+    tiempo_total: float
+    total_personal: int
+    total_maquinas: int
+    buffer: float
+    bottleneck_id: Optional[int] = None
+    bottleneck_nombre: Optional[str] = None
+    distribucion: List[DetalleConfigProceso] # Usa el modelo definido arriba
+
+# 3. El modelo Padre (Respuesta final)
+class OptimizationResponse(BaseModel):
+    status: str
+    total_combinaciones_generadas: int
+    escenarios: List[EscenarioCombinatorio] # Usa el modelo definido arriba
+
+# ==========================================
+# 4. MODELO DE SOLICITUD UNIFICADO
 # ==========================================
 
 class SimulationRequest(BaseModel):
-    """
-    Modelo híbrido que acepta tanto la estructura antigua como la nueva.
-    Los campos son opcionales para permitir ambos tipos de payload.
-    """
-    # --- Campos Legacy (Simulación General) ---
     productos: Optional[List[ProductoSolicitud]] = None
     asignacion_manual: Optional[Dict[str, int]] = None
     solo_info: bool = False
-
-    # --- Campos Visual (Angelo Engine) ---
     shoe_id: Optional[int] = None
     goal: Optional[int] = None

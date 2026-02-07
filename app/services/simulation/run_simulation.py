@@ -3,6 +3,7 @@ import os
 import sys
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+import itertools
 
 # --- CONFIGURACIÓN DE RUTAS SIMPLE ---
 # Obtenemos la ruta de la carpeta 'angelo_core'
@@ -112,18 +113,12 @@ def fetch_and_transform_data(db: Session, catalogo_id: int, user_goal: int):
 
     return df_datos, df_bodega, df_maq, df_areas
 
+# EN run_simulation.py (Versión Limpia)
 def run_simulation_service(db: Session, shoe_id: int, goal: int):
     try:
         df_datos, df_bodega, df_maq, df_areas = fetch_and_transform_data(db, shoe_id, goal)
         
-        print("💾 Guardando 'debug_dataframe_simulacion.xlsx'...")
-        df_datos.to_excel("debug_dataframe_simulacion.xlsx", index=False)
-        
-        # AQUÍ es donde necesitamos funciones.py
         df_procesado = funciones.preparar_procesos(df_datos)
-        
-        print("🚀 [Servicio] Ejecutando Simulación...")
-        # Usamos la clase HeadlessApp importada de runner.py
         app = runner.HeadlessApp(df_procesado, df_bodega, df_maq, df_areas)
         app.run()
 
@@ -132,12 +127,18 @@ def run_simulation_service(db: Session, shoe_id: int, goal: int):
             with open("grafica_base64.txt", "r") as f:
                 chart_b64 = f.read()
         
+        # Ahora confiamos plenamente en app.cb_info
+        # Si por alguna razón BUFFER es None, usamos 0.0 como fallback seguro
+        buffer_val = app.cb_info.get("BUFFER")
+        if buffer_val is None: buffer_val = 0.0
+
         return {
             "status": "success",
             "simulation_metadata": {
                 "shoe_id": shoe_id,
                 "goal": goal,
-                "bottleneck_process_id": app.cb_info["ID"],
+                "bottleneck_process_id": app.cb_info.get("ID"),
+                "bottleneck_buffer": buffer_val, 
                 "total_time_seconds": app.virtual_time
             },
             "results": {
@@ -145,7 +146,134 @@ def run_simulation_service(db: Session, shoe_id: int, goal: int):
                 "history_main": app.historial["datos"]
             }
         }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
+    
+
+def run_optimization_analysis(db: Session, shoe_id: int, goal: int):
+    try:
+        # 1. Obtener Datos Base
+        df_datos, df_bodega, df_maq, df_areas = fetch_and_transform_data(db, shoe_id, goal)
         
+        print(f"Iniciando Análisis Combinatorio para {len(df_datos)} procesos.")
+
+        # --- CREAR MAPA DE NOMBRES ---
+        # Usamos esto para traducir rápidamente ID -> Nombre del Proceso
+        mapa_nombres = {}
+        # -----------------------------
+
+        # 2. Generar opciones por cada proceso
+        opciones_por_proceso = []
+        
+        for idx, row in df_datos.iterrows():
+            pid = int(row['ID_PROCESO'])
+            # Usamos el nombre de la máquina o el ID como fallback
+            nombre = str(row['ID_MAQUINA']) if pd.notnull(row['ID_MAQUINA']) else f"Proceso {pid}"
+            
+            # Guardamos en el mapa
+            mapa_nombres[pid] = nombre
+
+            max_m = int(row['MAQUINAS']) if pd.notnull(row['MAQUINAS']) else 0
+            max_p = int(row['PERSONAL']) if pd.notnull(row['PERSONAL']) else 0
+
+            if max_m <= 0:
+                opciones_por_proceso.append([{
+                    "idx": idx, "pid": pid, "nombre": nombre, "m": 0, "p": 0
+                }])
+                continue
+
+            combinaciones_proc = []
+            for m in range(max_m, 0, -1):
+                rango_p = range(max_p, 0, -1) if max_p > 0 else [0]
+                for p in rango_p:
+                    combinaciones_proc.append({
+                        "idx": idx, "pid": pid, "nombre": nombre, "m": m, "p": p
+                    })
+            opciones_por_proceso.append(combinaciones_proc)
+
+        # 3. Producto Cartesiano
+        todos_los_escenarios = list(itertools.product(*opciones_por_proceso))
+        
+        MAX_ESCENARIOS = 500 
+        if len(todos_los_escenarios) > MAX_ESCENARIOS:
+            todos_los_escenarios = todos_los_escenarios[:MAX_ESCENARIOS]
+
+        resultados = []
+
+        # 4. Ejecutar Simulaciones
+        for i, escenario_tuple in enumerate(todos_los_escenarios):
+            df_test = df_datos.copy()
+            total_pers_escenario = 0
+            total_maq_escenario = 0
+            detalle_distribucion = []
+
+            for config in escenario_tuple:
+                if config['m'] > 0:
+                    df_test.at[config['idx'], 'MAQUINAS'] = config['m']
+                    df_test.at[config['idx'], 'PERSONAL'] = config['p']
+                
+                total_maq_escenario += config['m']
+                total_pers_escenario += config['p']
+
+                if config['m'] > 0:
+                    detalle_distribucion.append({
+                        "id_proceso": config['pid'],
+                        "nombre_proceso": config['nombre'],
+                        "maquinas_asignadas": config['m'],
+                        "personal_asignado": config['p']
+                    })
+
+            try:
+                # Correr Simulación
+                app_test = runner.HeadlessApp(funciones.preparar_procesos(df_test), df_bodega, df_maq, df_areas)
+                app_test.run()
+                
+                t_sim = app_test.virtual_time
+                buffer_val = app_test.cb_info.get("BUFFER")
+                if buffer_val is None: buffer_val = float(goal)
+
+                # --- CAPTURAR CUELLO DE BOTELLA ---
+                bn_id = app_test.cb_info.get("ID")
+                bn_nombre = mapa_nombres.get(bn_id, "Desconocido") if bn_id else "-"
+                # ----------------------------------
+
+                resultados.append({
+                    "tiempo_total": t_sim,
+                    "buffer": buffer_val,
+                    "bottleneck_id": bn_id,          # <--- Nuevo
+                    "bottleneck_nombre": bn_nombre,  # <--- Nuevo
+                    "total_personal": total_pers_escenario,
+                    "total_maquinas": total_maq_escenario,
+                    "distribucion": detalle_distribucion
+                })
+
+            except Exception as e:
+                print(f"⚠️ Error en escenario {i}: {e}")
+
+        # 5. Ordenar
+        resultados_ordenados = sorted(resultados, key=lambda x: x['tiempo_total'])
+
+        respuesta_final = []
+        for rank, res in enumerate(resultados_ordenados):
+            respuesta_final.append({
+                "ranking": rank + 1,
+                "tiempo_total": res['tiempo_total'],
+                "buffer": res['buffer'],
+                "bottleneck_id": res['bottleneck_id'],         # <--- Pasar
+                "bottleneck_nombre": res['bottleneck_nombre'], # <--- Pasar
+                "total_personal": res['total_personal'],
+                "total_maquinas": res['total_maquinas'],
+                "distribucion": res['distribucion']
+            })
+
+        return {
+            "status": "success",
+            "total_combinaciones_generadas": len(todos_los_escenarios),
+            "escenarios": respuesta_final
+        }
+
     except Exception as e:
         import traceback
         traceback.print_exc()

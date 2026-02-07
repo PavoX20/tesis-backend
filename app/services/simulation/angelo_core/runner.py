@@ -25,7 +25,8 @@ class HeadlessApp:
         self.db_maquinaria = df_maq.to_dict('records')
         self.db_areas = df_areas.to_dict('records')
         self.proc_state = {} 
-        self.cb_info = {"ID": None}
+        # Inicializamos el diccionario de Cuello de Botella con Buffer
+        self.cb_info = {"ID": None, "BUFFER": 0.0}
         
         self.virtual_time = 0.0 
         self.event_queue = []   
@@ -42,6 +43,9 @@ class HeadlessApp:
     def _init_procesos(self, df):
         for _, r in df.iterrows():
             row = r.to_dict()
+            # Guardamos la meta original numérica antes de transformarla en string "0/100"
+            row["META_NUM"] = int(row.get("META", 0))
+            
             row["META"] = f"0/{int(row.get('META', 0))}"
             # Aseguramos formato ratio desde el inicio para evitar 1/0
             row["MAQUINAS"] = f"0/{int(row.get('MAQUINAS', 0))}"
@@ -56,6 +60,9 @@ class HeadlessApp:
             
             if row.get("CUELLO_DE_BOTELLA"):
                 self.cb_info["ID"] = row["ID_PROCESO"]
+                # Inicialmente el buffer es la meta total para el CB
+                self.cb_info["BUFFER"] = float(row["META_NUM"])
+                
             self.db_procesos.append(row)
 
     def after(self, ms, func):
@@ -79,8 +86,7 @@ class HeadlessApp:
             if "TRABAJANDO" in estado or "PRODUCIENDO" in estado:
                 p["T.ACTIVO"] += delta
             
-            # El tiempo pausado se calcula matemáticamente en el snapshot:
-            # T.PAUSADO = (Tiempo Total Transcurrido - T.ACTIVO)
+            # El tiempo pausado se calcula matemáticamente en el snapshot
 
     def run(self):
         print("🚀 Ejecutando simulación con gráficas...")
@@ -107,6 +113,10 @@ class HeadlessApp:
                 
         self._fill_history_gap(self.virtual_time)
         print(f"✅ Finalizado en T={self.virtual_time:.3f}s simulados.")
+        
+        # Calcular Buffer Final antes de reportar
+        self._calcular_buffer_final()
+        
         self.print_report()
         
         if grafica:
@@ -116,6 +126,24 @@ class HeadlessApp:
         for p in self.db_procesos:
             if str(p.get("ACTIVO")).lower() == "true": return False
         return True
+    
+    def _calcular_buffer_final(self):
+        # Si no hay ID de Cuello de Botella identificado explícitamente, buscamos el que más tardó
+        if self.cb_info["ID"] is None:
+            # Lógica simple: el último proceso activo o con mayor carga
+            # Por ahora, si no hay CB definido, tomamos el proceso con mayor META
+            try:
+                max_proc = max(self.db_procesos, key=lambda x: x.get("META_NUM", 0))
+                self.cb_info["ID"] = max_proc["ID_PROCESO"]
+                self.cb_info["BUFFER"] = float(max_proc["META_NUM"])
+            except:
+                pass
+        else:
+            # Si ya existe un CB identificado, aseguramos que el BUFFER sea la Meta Numérica
+            # Buscamos el proceso en la DB interna
+            proc = next((p for p in self.db_procesos if p["ID_PROCESO"] == self.cb_info["ID"]), None)
+            if proc:
+                self.cb_info["BUFFER"] = float(proc.get("META_NUM", 0))
 
     def _fill_history_gap(self, target_time):
         next_snap = round(self.last_snap_time + 0.1, 1)
@@ -129,21 +157,17 @@ class HeadlessApp:
         def snap(source):
             final_rows = []
             for row in source:
-                # 1. Recuperar valores numéricos
                 t_activo = row.get("T.ACTIVO", 0.0)
                 t_inicio = row.get("T.INICIO")
                 
-                # 2. CÁLCULO MATEMÁTICO DE PAUSA
                 if t_inicio is not None:
                     t_vida = t - t_inicio
                     t_pausado = max(0.0, t_vida - t_activo)
                 else:
                     t_pausado = 0.0
                 
-                # Guardar el cálculo en la DB para la gráfica final
                 row["T.PAUSADO"] = t_pausado
 
-                # 3. Formatear para historial (copia para no romper floats)
                 r_copy = row.copy()
                 r_copy["T_HIST"] = t
                 r_copy["T.ACTIVO"] = f"{t_activo:.3f}"
@@ -159,14 +183,15 @@ class HeadlessApp:
     def print_report(self):
         print("\n" + "="*90)
         print("RESUMEN CUELLO DE BOTELLA (FINAL)")
+        # Usamos los datos internos de la clase
         print(pd.DataFrame([{
             "ID_PROCESO_CUELLO": self.cb_info["ID"],
-            "BUFFER": 100.0,
+            "BUFFER": self.cb_info["BUFFER"], 
             "TIEMPO_TOTAL_S": self.virtual_time
         }]).to_string(index=False))
         print("="*90)
 
-        # CONFIGURACIÓN PARA MOSTRAR TODO (SIN LÍMITES)
+        # CONFIGURACIÓN PARA MOSTRAR TODO
         pd.set_option('display.max_columns', 20)
         pd.set_option('display.width', 1000)
         pd.set_option('display.max_rows', None)
@@ -179,9 +204,10 @@ class HeadlessApp:
                 print(df[c_ord].to_string(index=False))
 
         print_table("datos", "HISTORIAL DATOS", ["ID_PROCESO", "INCIALES", "MAQUINAS", "PERSONAL", "META", "ACTIVO", "ESTADO", "T.ACTIVO", "T.PAUSADO"])
-        print_table("bodega", "HISTORIAL BODEGA", ["AREA", "MATERIA", "CANTIDAD"])
-        print_table("maq", "HISTORIAL MAQUINARIA", ["AREA", "MAQUINARIA", "CANTIDAD"])
-        print_table("areas", "HISTORIAL AREAS", ["AREA", "PERSONAL"])
+        # (Opcional) Comentado para no saturar consola si no es necesario
+        # print_table("bodega", "HISTORIAL BODEGA", ["AREA", "MATERIA", "CANTIDAD"])
+        # print_table("maq", "HISTORIAL MAQUINARIA", ["AREA", "MAQUINARIA", "CANTIDAD"])
+        # print_table("areas", "HISTORIAL AREAS", ["AREA", "PERSONAL"])
 
     def generate_graph(self):
         print("\n📊 Generando gráfica desde historial...")
@@ -199,6 +225,7 @@ class HeadlessApp:
             with open("grafica_base64.txt", "w") as f:
                 f.write(b64_str)
             
+            # También guardamos el PNG físico por si acaso
             with open("grafica.png", "wb") as f:
                 f.write(base64.b64decode(b64_str))
                 
