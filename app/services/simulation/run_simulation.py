@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 import itertools
 
-# --- CONFIGURACIÓN DE RUTAS SIMPLE ---
+
 # Obtenemos la ruta de la carpeta 'angelo_core'
 current_dir = os.path.dirname(os.path.abspath(__file__))
 core_dir = os.path.join(current_dir, "angelo_core")
@@ -23,7 +23,7 @@ except ImportError as e:
     print("Asegúrate de que 'runner.py' y 'funciones.py' existan en esa carpeta.")
     raise e
 
-# --- FIN DE IMPORTS ---
+
 
 def fetch_and_transform_data(db: Session, catalogo_id: int, user_goal: int):
     print(f"📥 [Servicio] Consultando producto {catalogo_id}, Meta: {user_goal}")
@@ -127,7 +127,7 @@ def run_simulation_service(db: Session, shoe_id: int, goal: int):
             with open("grafica_base64.txt", "r") as f:
                 chart_b64 = f.read()
         
-        # Ahora confiamos plenamente en app.cb_info
+
         # Si por alguna razón BUFFER es None, usamos 0.0 como fallback seguro
         buffer_val = app.cb_info.get("BUFFER")
         if buffer_val is None: buffer_val = 0.0
@@ -159,7 +159,6 @@ def run_optimization_analysis(db: Session, shoe_id: int, goal: int):
         
         print(f"Iniciando Análisis Combinatorio para {len(df_datos)} procesos.")
 
-        # --- CREAR MAPA DE NOMBRES ---
         # Usamos esto para traducir rápidamente ID -> Nombre del Proceso
         mapa_nombres = {}
         # -----------------------------

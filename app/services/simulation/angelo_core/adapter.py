@@ -9,7 +9,6 @@ def clean_param(val):
     return str(val)
 
 def db_to_angelo_format(db: Session, id_catalogo: int, cantidad_meta: int):
-    # 1. Consulta SQL: Traemos TODOS los diagramas (Principal + Subdiagramas)
     query = db.query(Proceso, TipoMaquina, Area)\
         .join(DiagramaDeFlujo, Proceso.id_diagrama == DiagramaDeFlujo.id_diagrama)\
         .outerjoin(TipoMaquina, Proceso.id_tipomaquina == TipoMaquina.id_tipomaquina)\
@@ -24,7 +23,7 @@ def db_to_angelo_format(db: Session, id_catalogo: int, cantidad_meta: int):
 
     ids_procesos = tuple([p.id_proceso for p, _, _ in query])
     
-    # 2. Obtener Recetas
+
     recetas_in = {}
     recetas_out = {}
     cantidades_parada = {}

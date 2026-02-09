@@ -38,4 +38,4 @@ def eliminar_area(id_area: int, session: Session = Depends(get_session)):
         raise HTTPException(404, "Area no encontrada")
     session.delete(obj)
     session.commit()
-    return  # 204 No Content
+    return  

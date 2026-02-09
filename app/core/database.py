@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy.pool import NullPool  
 from app.core.config import settings
 
-# 1. Configuración del Engine (Mantenemos tu configuración actual)
+# 1. Configuración del Engine 
 # Aseguramos que DATABASE_URL sea string por si settings devuelve un objeto URL
 engine = create_engine(
     str(settings.DATABASE_URL), 

@@ -177,7 +177,7 @@ def run_simulation(db: Session, request: SimulationRequest):
             df_rec_d['TIPO_PRODUCTO'] = np.where(df_rec_d['ROL'] == 'OUT', 'producto', 'materia')
             df_rec_d['ID_DIAGRAMA'] = str(id_diagrama_principal)
 
-            # [AQUÍ ESTÁ LA MAGIA PARA PASAR DE 130H A 1.3H]
+            
             # 1. Calculamos cantidad base (esto daba 10,000)
             df_rec_d['CANTIDAD PRODUCION'] = df_rec_d['CANTIDAD UNITARIA'] * cantidad_pedido
             

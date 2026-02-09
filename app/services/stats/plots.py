@@ -1,7 +1,7 @@
 # app/services/stats/plots.py
 from io import BytesIO
 import matplotlib
-matplotlib.use("Agg")  # backend sin GUI
+matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
 
 def ax_to_png_bytes(ax) -> bytes:
