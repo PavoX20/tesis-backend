@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from app.models.proceso_model import Proceso
 from app.models.procesos_dependencias import ProcesoDependencia
 from app.models.receta import Receta
-from app.models.materia_model import Materia   # tu modelo actual
+from app.models.materia_model import Materia   
 from app.models.diagrama_de_flujo import DiagramaDeFlujo as Diagrama
 
 def _receta_por_procesos(session: Session, proceso_ids: List[int]) -> Dict[int, dict]:

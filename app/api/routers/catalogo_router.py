@@ -12,19 +12,11 @@ from app.crud.catalogo_crud import (
 
 router = APIRouter(prefix="/catalogo", tags=["Catálogo"])
 
-
-# ==============================
-# 🔹 Obtener todos los catálogos
-# ==============================
 @router.get("/")
 def listar_catalogos(session: Session = Depends(get_session)):
     catalogos = get_all_catalogos(session)
     return {"catalogos": catalogos}
 
-
-# ==============================
-# 🔹 Obtener un catálogo por ID
-# ==============================
 @router.get("/{catalogo_id}")
 def obtener_catalogo(catalogo_id: int, session: Session = Depends(get_session)):
     catalogo = get_catalogo_by_id(session, catalogo_id)
@@ -32,10 +24,6 @@ def obtener_catalogo(catalogo_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Catálogo no encontrado")
     return {"catalogo": catalogo}
 
-
-# ==============================
-# 🔹 Crear un nuevo catálogo
-# ==============================
 @router.post("/")
 def crear_catalogo(catalogo: Catalogo, session: Session = Depends(get_session)):
     nuevo_catalogo = create_catalogo(session, catalogo)
@@ -44,10 +32,6 @@ def crear_catalogo(catalogo: Catalogo, session: Session = Depends(get_session)):
         "data": nuevo_catalogo,
     }
 
-
-# ==============================
-# 🔹 Actualizar un catálogo
-# ==============================
 @router.put("/{catalogo_id}")
 def actualizar_catalogo(catalogo_id: int, data: Catalogo, session: Session = Depends(get_session)):
     actualizado = update_catalogo(session, catalogo_id, data)
@@ -58,10 +42,6 @@ def actualizar_catalogo(catalogo_id: int, data: Catalogo, session: Session = Dep
         "data": actualizado,
     }
 
-
-# ==============================
-# 🔹 Eliminar un catálogo en cascada
-# ==============================
 @router.delete("/{catalogo_id}")
 def eliminar_catalogo(catalogo_id: int, session: Session = Depends(get_session)):
     eliminado = delete_catalogo(session, catalogo_id)

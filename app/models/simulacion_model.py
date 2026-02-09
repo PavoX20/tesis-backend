@@ -15,11 +15,10 @@ try:
 except ImportError:
     from .areas import Area
 
-# --- NUEVO: Agregamos el Diagrama para hacer el puente ---
+
 try:
     from .diagrama_de_flujo import DiagramaDeFlujo
 except ImportError:
-    # Fallbacks comunes por si el nombre de clase varía
     try:
         from .diagrama_de_flujo import Diagrama as DiagramaDeFlujo
     except ImportError:
