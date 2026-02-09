@@ -10,4 +10,7 @@ def get_diagrama_detalle_endpoint(id_catalogo: int, session: Session = Depends(g
     result = get_diagrama_detalle(session, id_catalogo)
     if not result:
         raise HTTPException(status_code=404, detail="Catálogo no encontrado o sin diagrama asociado")
+
+
+    #PRUEBA
     return result
